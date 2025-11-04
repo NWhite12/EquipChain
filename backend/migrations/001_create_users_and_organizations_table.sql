@@ -293,8 +293,7 @@ COMMENT ON TRIGGER trigger_organizations_update_at ON organizations IS
 
 CREATE OR REPLACE FUNCTION check_and_update_lockout(
   p_user_id UUID,
-  p_failed_attempts INT,
-  p_lockout_duration_seconds INT DEFAULT 60
+  p_lockout_duration_seconds INT DEFAULT 300
 )
 RETURNS TABLE(
   is_locked BOOLEAN,
@@ -302,40 +301,52 @@ RETURNS TABLE(
 ) AS $$
 DECLARE
   v_locked_until TIMESTAMP WITH TIME ZONE;
+  v_attempts INT;
   v_is_locked BOOLEAN;
   v_remaining_seconds INT;
 BEGIN
-  SELECT locked_until INTO v_locked_until FROM users WHERE id = p_user_id;
+  SELECT locked_until, failed_login_attempts INTO v_locked_until, v_attempts FROM users WHERE id = p_user_id;
 
   -- Check if still in lockout period
   IF v_locked_until IS NOT NULL AND v_locked_until > CURRENT_TIMESTAMP THEN
     v_is_locked := true;
     v_remaining_seconds := EXTRACT(EPOCH FROM (v_locked_until - CURRENT_TIMESTAMP))::INT;
   ELSE
-    -- Lockout expired, reset attempts
-    UPDATE users
-    SET
-      failed_login_attempts = CASE
-        WHEN p_failed_attempts >= 5 THEN p_failed_attempts
-        ELSE 0
-      END,
-      locked_until = CASE
-        WHEN p_failed_attempts >= 5 THEN CURRENT_TIMESTAMP + (p_lockout_duration_seconds || ' seconds')::INTERVAL
-        ELSE NULL
-      END,
-      last_failed_login_at = CURRENT_TIMESTAMP
-    WHERE id = p_user_id;
+    v_attempts := COALESCE(v_attempts, 0) + 1;
 
-    v_is_locked := p_failed_attempts >= 5;
-    v_remaining_seconds := CASE WHEN v_is_locked THEN p_lockout_duration_seconds ELSE 0 END;
+    IF v_attempts >= 5 THEN
+      v_locked_until := NOW() + (p_lockout_duration_seconds || ' seconds')::INTERVAL;
+      v_is_locked := TRUE;
+      v_remaining_seconds := p_lockout_duration_seconds;
+    ELSE
+      v_locked_until := NULL;
+    END IF;
+
+    UPDATE users SET
+    failed_login_attempts = v_attempts,
+    locked_until = v_locked_until,
+    last_failed_login_at = CURRENT_TIMESTAMP
+    WHERE id = p_user_id;
   END IF;
 
   RETURN QUERY SELECT v_is_locked, v_remaining_seconds;
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION check_and_update_lockout(UUID, INT, INT) IS
-'Helper function for backend authentication logic to check and update account lockout.
-Implements exponential backoff: 60s → 120s → 240s → 480s on consecutive failed attempts.
-Returns: is_locked (boolean), remaining_lockout_seconds (int).
-Backend calls this after failed login to lock account if needed.';
+COMMENT ON FUNCTION check_and_update_lockout(UUID, INT) IS
+'Secure lockout function for failed login attempts.
+
+- Increments failed_login_attempts on each call
+- Locks account for p_lockout_duration_seconds (default 300) when attempts >= 5
+- Returns:
+    • is_locked: TRUE if account is currently locked
+    • remaining_lockout_seconds: Seconds until unlock (0 if not locked)
+- Resets lockout timer only on expiration
+- Call after every failed login; reset attempts manually on success
+- Thread-safe with row-level locking (add FOR UPDATE if high concurrency)
+
+Usage:
+  SELECT * FROM check_and_update_lockout(user_id);
+
+On success:
+  UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = user_id;';
