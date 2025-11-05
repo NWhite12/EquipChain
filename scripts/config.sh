@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ================================================================================
-# Environment Configuration 
+# Environment Configuration
 # Description: 4-layer hierarchy for database configuration
 # ================================================================================
 
@@ -70,7 +70,7 @@ for var in "${config_vars[@]}"; do
 done
 
 # ================================================================================
-# LAYER 3: CLI / RUNTIME OVERRIDES (highest priority)
+# Layer 3: CLI / Runtime Overrides (highest priority)
 # ================================================================================
 apply_cli_overrides() {
   local override
