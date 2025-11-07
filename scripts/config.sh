@@ -12,20 +12,29 @@ set -euo pipefail
 # ================================================================================
 
 # Database Configuration
-DB_HOST="localhost"
-DB_PORT="5432"
-DB_NAME="equipchain"
-DB_USER="equipchain_dev"
-DB_PASSWORD="1234"
-DB_SSL_MODE="disabled"
+DB_HOST="${DB_HOST:-localhost}"
+DB_PORT="${DB_PORT:-5432}"
+DB_NAME="${DB_NAME:-equipchain}"
+DB_SSL_MODE="${DB_SSL_MODE:-disable}"
+APP_ENV="${APP_ENV:-dev}"
 
-# Application Environment
-APP_ENV="dev"
+# Becomes the password for equipchain_prod / equipchain_dev / etc.
+DB_PASSWORD="${DB_PASSWORD:-}"
+
+# Superuser for setup (never used by app)
+DB_SUPERUSER="${DB_SUPERUSER:-postgres}"
+DB_SUPERUSER_PASSWORD="${DB_SUPERUSER_PASSWORD:-}"
+
+# App Roles
+APP_OWNER_ROLE="equipchain_owner"
+APP_USER_ROLE="equipchain_app"
+APP_ANALYTICS_ROLE="equipchain_analytics"
+APP_SCHEMA="equipchain"
 
 # ================================================================================
 # Config Array
 # ================================================================================
-config_vars=(DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD DB_SSL_MODE)
+config_vars=(DB_HOST DB_PORT DB_NAME DB_PASSWORD DB_SSL_MODE DB_SUPERUSER DB_SUPERUSER_PASSWORD)
 
 # ================================================================================
 # Layer 1: Global Environment Variables (EQUIPCHAIN_*)
@@ -77,7 +86,7 @@ apply_cli_overrides() {
   for override in "$@"; do
     # Only allow known config keys
     case "$override" in
-      DB_HOST=*|DB_PORT=*|DB_NAME=*|DB_USER=*|DB_PASSWORD=*|DB_SSL_MODE=*|APP_ENV=*)
+      DB_HOST=*|DB_PORT=*|DB_NAME=*|DB_PASSWORD=*|DB_SSL_MODE=*|APP_ENV=*|DB_SUPERUSER=*|DB_SUPERUSER_PASSWORD=*)
         # Extract key and value
         local key="${override%%=*}"
         local val="${override#*=}"
@@ -96,73 +105,44 @@ apply_cli_overrides() {
 
 print_config() {
   echo "=== EquipChain Database Configuration ==="
-  echo "Stage: $APP_ENV"
-  echo "Host: $DB_HOST"
-  echo "Port: $DB_PORT"
-  echo "Database: $DB_NAME"
-  echo "User: $DB_USER"
-  echo "SSL Mode: $DB_SSL_MODE"
-  echo "========================================"
+  echo "Environment: $APP_ENV"
+  echo "Host:        $DB_HOST"
+  echo "Port:        $DB_PORT"
+  echo "Database:    $DB_NAME"
+  echo "Schema:      $APP_SCHEMA"
+  echo "Owner Role:  $APP_OWNER_ROLE"
+  echo "App Role:    $APP_USER_ROLE"
+  echo "SSL Mode:    $DB_SSL_MODE"
+  echo "========================================="
 }
 
 validate_config() {
- local errors=0
-
-  if [ -z "$DB_HOST" ]; then
-    echo "ERROR: DB_HOST is not set" >&2
-    ((errors++))
-  fi
-
-  if [ -z "$DB_PORT" ]; then
-    echo "ERROR: DB_PORT is not set" >&2
-    ((errors++))
-  elif ! [[ "$DB_PORT" =~ ^[0-9]+$ ]]; then
-    echo "ERROR: DB_PORT must be a number (got: $DB_PORT)" >&2
-    ((errors++))
-  fi
-
-  if [ -z "$DB_NAME" ]; then
-    echo "ERROR: DB_NAME is not set" >&2
-    ((errors++))
-  fi
-
-  if [ -z "$DB_USER" ]; then
-    echo "ERROR: DB_USER is not set" >&2
-    ((errors++))
-  fi
-
-  if [ -z "$DB_PASSWORD" ]; then
-    echo "WARNING: DB_PASSWORD is empty" >&2
-  fi
-
-  if [ "$errors" -gt 0 ]; then
-    return 1
-  fi
-
+  local errors=0
+  for var in DB_HOST DB_PORT DB_NAME; do
+    if [ -z "${!var}" ]; then
+      echo "ERROR: $var is not set" >&2
+      ((errors++))
+    fi
+  done
+  if [ "$errors" -gt 0 ]; then return 1; fi
   return 0
 }
 
-build_psql_command(){
-  local psql_cmd="psql"
-
-  if [ -n "$DB_HOST" ]; then
-    psql_cmd="$psql_cmd -h $DB_HOST"
-  fi
-
-  if [ -n "$DB_PORT" ]; then
-    psql_cmd="$psql_cmd -p $DB_PORT"
-  fi
-
-  if [ -n "$DB_USER" ]; then
-    psql_cmd="$psql_cmd -U $DB_USER"
-  fi
-
-  if [ -n "$DB_NAME" ]; then
-    psql_cmd="$psql_cmd -d $DB_NAME"
-  fi
-
-  echo "$psql_cmd"
+build_url() {
+  local user="$1"
+  local pass="${2:-}"
+  local db="${3:-$DB_NAME}"
+  local extra="${4:-}"
+  local pass_part=""
+  [[ -n "$pass" ]] && pass_part=":$pass"
+  echo "postgres://$user$pass_part@${DB_HOST}:${DB_PORT}/$db?sslmode=$DB_SSL_MODE$extra"
 }
 
-export DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD DB_SSL_MODE APP_ENV
-export -f print_config validate_config build_psql_command
+super_url() {
+  [[ -z "$DB_SUPERUSER_PASSWORD" ]] && echo "postgres://$DB_SUPERUSER@${DB_HOST}:${DB_PORT}/postgres" || \
+    echo "postgres://$DB_SUPERUSER:$DB_SUPERUSER_PASSWORD@${DB_HOST}:${DB_PORT}/postgres"
+}
+
+export DB_HOST DB_PORT DB_NAME DB_PASSWORD DB_SSL_MODE APP_ENV
+export DB_SUPERUSER DB_SUPERUSER_PASSWORD APP_SCHEMA APP_OWNER_ROLE APP_USER_ROLE APP_ANALYTICS_ROLE
+export -f print_config validate_config build_url super_url apply_cli_overrides
