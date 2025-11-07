@@ -137,6 +137,20 @@ export PGPASSWORD="$MIGRATOR_PASS"
 
 "$SCRIPT_DIR/migrate.sh" --stage "$APP_ENV"
 
+psql "$SUPER_URL" -v ON_ERROR_STOP=1 <<-EOSQL
+\c ${DB_NAME}
+-- Grant permissions on ALL EXISTING tables created by migrations
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${APP_SCHEMA} TO ${APP_USER_ROLE};
+GRANT SELECT ON ALL TABLES IN SCHEMA ${APP_SCHEMA} TO ${APP_ANALYTICS_ROLE};
+
+-- Grant permissions on ALL EXISTING sequences (for auto-increment IDs)
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ${APP_SCHEMA} TO ${APP_USER_ROLE};
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ${APP_SCHEMA} TO ${APP_ANALYTICS_ROLE}; 
+
+-- Grant function execution (for check_and_update_lockout, etc.)
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ${APP_SCHEMA} TO ${APP_USER_ROLE};
+EOSQL
+
 echo "Cleaning up: destroying equipchain_migrator..."
 psql "$SUPER_URL" -c "REVOKE ${APP_OWNER_ROLE} FROM equipchain_migrator;" 2>/dev/null || true
 psql "$SUPER_URL" -c "DROP ROLE equipchain_migrator;" 2>/dev/null || true
