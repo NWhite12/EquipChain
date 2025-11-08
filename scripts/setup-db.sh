@@ -27,6 +27,14 @@ if [[ " $* " == *" --force "* ]]; then
   echo "WARNING: --force detected — will DROP database and roles if they exist"
 fi
 
+
+# Parse --seed
+SEED=0
+if [[ " $* " == *" --seed "* ]]; then
+  SEED=1
+  echo "INFO: --seed detected — will populate lookup tables and dev data"
+fi
+
 apply_cli_overrides "$@"
 print_config
 validate_config
@@ -135,7 +143,13 @@ export DB_USER="equipchain_migrator"
 export DB_PASSWORD="$MIGRATOR_PASS"
 export PGPASSWORD="$MIGRATOR_PASS"
 
-"$SCRIPT_DIR/migrate.sh" --stage "$APP_ENV"
+
+# Build migration arguments
+MIGRATE_ARGS=("--stage" "$APP_ENV")
+if [ $SEED -eq 1 ]; then
+  MIGRATE_ARGS+=("--seed")
+fi
+"$SCRIPT_DIR/migrate.sh" "${MIGRATE_ARGS[@]}"
 
 psql "$SUPER_URL" -v ON_ERROR_STOP=1 <<-EOSQL
 \c ${DB_NAME}

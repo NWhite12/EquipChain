@@ -33,6 +33,7 @@ OVERRIDE_STAGE=""
 SHOW_HELP=0
 SHOW_CONFIG=0
 DRY_RUN=0
+SEED_DATA=0
 
 # Parse CLI arguments
 parse_arguments() {
@@ -64,6 +65,10 @@ parse_arguments() {
         ;;
       --dry-run)
         DRY_RUN=1
+        shift
+        ;;
+      --seed)
+        SEED_DATA=1
         shift
         ;;
       --help|-h)
@@ -101,6 +106,7 @@ OPTIONS:
   --stage STAGE            Use EQUIPCHAIN_[STAGE]_* variables (Layer 2)
   --config                 Show configuration and exit
   --dry-run                Show what would be executed without running
+  --seed                   Populate lookup tables and sample dev data
   --help, -h               Show this help message
 
 ENVIRONMENT VARIABLES (Layers 1 & 2):
@@ -202,6 +208,12 @@ declare -a MIGRATION_FILES=(
   "$MIGRATIONS_DIR/002_add_foreign_keys_and_constraints.sql"
 )
 
+
+# Add seed data if --seed flag was used
+if [ $SEED_DATA -eq 1 ]; then
+  MIGRATION_FILES+=("$MIGRATIONS_DIR/003_seed_data.sql")
+fi
+
 for file in "${MIGRATION_FILES[@]}"; do 
   if [ ! -f "$file" ]; then
     echo "ERROR: Migration file not found: $file" >&2
@@ -230,8 +242,11 @@ for migration_file in "${MIGRATION_FILES[@]}"; do
     echo ""
   else
     echo "Running: $migration_name"
-
-    if $psql_cmd 2>&1 | grep -q "ERROR"; then
+    
+  #  if $psql_cmd 2>&1 | grep -q "ERROR"; then
+     output=$($psql_cmd 2>&1)
+     echo "DEBUG OUTPUT: $output"
+  if echo "$output" | grep -q "ERROR"; then
       echo "Migration failed: $migration_name" >&2
       exit 1
     else
