@@ -114,12 +114,8 @@ COMMENT ON TABLE organizations IS
 -- ================================================================================
 
 -- Demo password hash for "demo123" with bcrypt cost 12:
--- $2a$12$OIYjJHrnZBNfvKfGVBYBr.c7z2LHREG.0lhq6i0gTVGRQFCXXBCz-- Before users INSERT (around line 119):
-\set QUIET off
-SELECT '=== Starting Users Seed ===' as debug;
-SELECT COUNT(*) as existing_users FROM users;
-SELECT COUNT(*) as existing_roles FROM role_lookup;
-SELECT COUNT(*) as existing_orgs FROM organizations;
+-- $2a$12$OIYjJHrnZBNfvKfGVBYBr.c7z2LHREG.0lhq6i0gTVGRQFCXXBCzC
+
 INSERT INTO users (id, organization_id, email, password_hash, role_id, email_verified, email_verified_at, status)
 VALUES
   -- Demo Corp: Admin user
@@ -148,11 +144,6 @@ VALUES
   ('550e8400-e29b-41d4-a716-446655440023'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid, 'viewer@testbuilder.local',
 '$2a$12$OIYjJHrnZBNfvKfGVBYBr.c7z2LHREG.0lhq6i0gTVGRQFCXXBCzC', 4, true, CURRENT_TIMESTAMP, 'active')
 ON CONFLICT (organization_id, email) DO NOTHING;
-
--- After users INSERT (around line 146):
-SELECT '=== Users Seed Complete ===' as debug;
-SELECT COUNT(*) as total_users FROM users;
-SELECT email, role_id, organization_id FROM users WHERE organization_id = '550e8400-e29b-41d4-a716-446655440001'::uuid;
 
 COMMENT ON TABLE users IS
 'Development seed data: Demo users for all roles and organizations';

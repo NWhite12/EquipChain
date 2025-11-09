@@ -243,10 +243,7 @@ for migration_file in "${MIGRATION_FILES[@]}"; do
   else
     echo "Running: $migration_name"
     
-  #  if $psql_cmd 2>&1 | grep -q "ERROR"; then
-     output=$($psql_cmd 2>&1)
-     echo "DEBUG OUTPUT: $output"
-  if echo "$output" | grep -q "ERROR"; then
+    if $psql_cmd 2>&1 | grep -q "ERROR"; then
       echo "Migration failed: $migration_name" >&2
       exit 1
     else
