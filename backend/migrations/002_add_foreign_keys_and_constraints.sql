@@ -168,3 +168,31 @@ ALTER TABLE equipment_status_lookup
 COMMENT ON CONSTRAINT fk_equipment_status_lookup_updated_by ON equipment_status_lookup IS
 'Foreign key to users.id - admin who last modified this status.
 Auto-updated by trigger. On delete: SET NULL.';
+
+-- ================================================================================
+-- Foreign Key Constraints for equipment Table
+-- ================================================================================
+
+ALTER TABLE equipment
+  ADD CONSTRAINT fk_equipment_organization_id
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE equipment
+  ADD CONSTRAINT fk_equipment_status_id
+    FOREIGN KEY (status_id) REFERENCES equipment_status_lookup(id) ON DELETE RESTRICT;
+
+ALTER TABLE equipment
+  ADD CONSTRAINT fk_equipment_owner_id
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE equipment
+  ADD CONSTRAINT fk_equipment_created_by
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE equipment
+  ADD CONSTRAINT fk_equipment_updated_by
+    FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE equipment
+  ADD CONSTRAINT equipment_serial_number_unique_per_org
+    UNIQUE(organization_id, serial_number);

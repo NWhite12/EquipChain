@@ -59,7 +59,6 @@ COMMENT ON COLUMN organizations.updated_by IS
 -- ================================================================================
 -- Create users Table
 -- Description: User accounts with OWASP-compliant authentication and lockout
--- Note: Foreign keys to organizations and users added in migration 002
 -- ================================================================================
 
 CREATE TABLE users (
@@ -185,7 +184,6 @@ COMMENT ON COLUMN users.updated_by IS
 -- ================================================================================
 -- Create user_password_history Table
 -- Description: Prevent password reuse
--- Note: Foreign key to users added in migration 002
 -- ================================================================================
 
 CREATE TABLE user_password_history (
@@ -213,7 +211,6 @@ COMMENT ON COLUMN user_password_history.set_at IS
 -- ================================================================================
 -- Create role_lookup Table
 -- Description: Defines all user roles in the system
--- Note: Foreign keys to users added in migration 002
 -- ================================================================================
 
 CREATE TABLE role_lookup (
@@ -283,7 +280,6 @@ Updated automatically by trigger_role_lookup_update_at.';
 -- ================================================================================
 -- Create maintenance_status_lookup Table
 -- Description: Defines maintenance record workflow states
--- Note: Foreign keys to users added in migration 002
 -- ================================================================================
 
 CREATE TABLE maintenance_status_lookup (
@@ -362,7 +358,6 @@ COMMENT ON COLUMN maintenance_status_lookup.updated_by IS
 -- ================================================================================
 -- Create maintenance_type_lookup Table
 -- Description: Categorize Types of maintenance work
--- Note: Foreign keys to users added in migration 002 (and typo fix: created_at -> created_by)
 -- ================================================================================
 
 CREATE TABLE maintenance_type_lookup (
@@ -432,7 +427,6 @@ Updated automatically by trigger_maintenance_type_lookup_update_at.';
 -- ================================================================================
 -- Create equipment_status_lookup Table
 -- Description: Defines equipment lifecycle status
--- Note: Foreign keys to users added in migration 002
 -- ================================================================================
 
 CREATE TABLE equipment_status_lookup (
@@ -489,6 +483,81 @@ COMMENT ON COLUMN equipment_status_lookup.updated_by IS
 'User ID of admin who last modified this status (foreign key added in migration 002).
 Updated automatically by trigger_equipment_status_lookup_update_at.';
 
+-- ================================================================================
+-- Create equipment Table
+-- Description: Core equipment registry
+-- ================================================================================
+
+CREATE TABLE equipment (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL,
+  
+  -- equipment identifiers
+  serial_number VARCHAR(100) NOT NULL,
+  make VARCHAR(100) NOT NULL,
+  model VARCHAR(100) NOT NULL,
+  location VARCHAR(255),
+
+  -- equipment lifecycle
+  status_id SMALLINT NOT NULL,
+  owner_id UUID,
+
+  -- QR Code (bas64 PNG data)
+  qr_code TEXT,
+
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  created_by UUID,
+  updated_by UUID,
+
+  CONSTRAINT serial_number_not_empty CHECK (TRIM(serical_number) != ''),
+  CONSTRAINT make_not_empty CHECK (TRIM(make) != ''),
+  CONSTRAINT model_not_empty CHECK (TRIM(model) != '')
+);
+
+COMMENT ON TABLE equipment IS
+'Core equipment registry. Each equipment belongs to an organization.
+Tracks serial number, make, model, location, and lifecycle status.
+QR codes link physical equipment to digital maintenance records.';
+
+COMMENT ON COLUMN equipment.id IS
+'Primary key - UUID auto-generated for security.';
+
+COMMENT ON COLUMN equipment.organization_id IS
+'Foreign key to organizations. Supports Multi-tenant isolation.';
+
+COMMENT ON COLUMN equipment.serial_number IS
+'Unique identifier within organization. Example: "CAT-320-ABC123".
+Must be unique per organization (different orgs can have same serial).';
+
+COMMENT ON COLUMN equipment.make IS
+'Equipment manufacturer. Example: "Caterpillar".';
+
+COMMENT ON COLUMN equipment.model IS
+'Equipment model. Example: "320 Excavator".';
+
+COMMENT ON COLUMN equipment.location IS
+'Current location or job site. Example: "Construction Site #7".
+May be NULL if location is not tracked.';
+
+COMMENT ON COLUMN equipment.status_id IS
+'Foreign key to equipment_status_lookup.
+Controls whether equipment can have maintenance records created.';
+
+COMMENT ON COLUMN equipment.owner_id IS
+'Foreign key to users. Who owns this equipment?
+Optional - may be NULL if ownership is organizational.';
+
+COMMENT ON COLUMN equipment.qr_code IS
+'QR code as base64 PNG data. Format: "data:image/png;base64,iVBORw0KGgoAAAA...".
+Generated on equipment creation. Printed and placed on physical equipment.';
+
+COMMENT ON COLUMN equipment.created_by IS
+'User ID of who created this equipment.';
+
+COMMENT ON COLUMN equipment.updated_by IS
+'User ID of who last modified this equipment (auto-updated by trigger).';
 
 -- ================================================================================
 -- Create Indexes on All Tables
@@ -562,6 +631,25 @@ CREATE INDEX idx_equipment_status_lookup_allow_maintenance ON equipment_status_l
 COMMENT ON INDEX idx_equipment_status_lookup_allow_maintenance IS 
 'Query which statuses allow maintenance record creation (business rule enforcement).';
 
+CREATE INDEX idx_equipment_organization_id ON equipment(organization_id);
+COMMENT ON INDEX idx_equipment_organization_id IS
+'Multi-tenant isolation: List all equipment for organization.';
+
+CREATE INDEX idx_equipment_serial_number ON equipment(serial_number, organization_id);
+COMMENT ON INDEX idx_equipment_serial_number IS
+'Fast lookup during equipment registration and maintenance submission.';
+
+CREATE INDEX idx_equipment_status_id ON equipment(status_id);
+COMMENT ON INDEX idx_equipment_status_id IS
+'Filter active equipment or equipment in specific lifecycle state.';
+
+CREATE INDEX idx_equipment_owner_id ON equipment(owner_id);
+COMMENT ON INDEX idx_equipment_owner_id IS
+'List all equipment owned by specific user.';
+
+CREATE INDEX idx_equipment_created_at ON equipment(created_at);
+COMMENT ON INDEX idx_equipment_created_at IS
+'Time-based queries for reporting.';
 
 -- ================================================================================
 -- Create Trigger Function for Updated_At Timestamp (Users/Organizations)
@@ -620,6 +708,18 @@ CREATE TRIGGER trigger_organizations_update_at
 COMMENT ON TRIGGER trigger_organizations_update_at ON organizations IS
 'Automatically updates organizations.updated_at timestamp on row modification.';
 
+-- ================================================================================
+-- Create Trigers for Equipment, Maintenance Records, Maintenance PHotos, and Blockchain Transactions
+-- Description: Apply timestamp update function to equipment, maintenance_records, maintenance_photos, and blockchain_transactions
+-- ================================================================================
+
+CREATE TRIGGER trigger_equipment_update_at
+BEFORE UPDATE ON equipment
+FOR EACH ROW
+  EXECUTE FUNCTION update_user_timestamp();
+
+COMMENT ON TRIGGER trigger_equipment_update_at ON equipment IS 
+'Automatically updates equipment.updated_at timestamp on row modification';
 
 -- ================================================================================
 -- Create Triggers for All Lookup Tables

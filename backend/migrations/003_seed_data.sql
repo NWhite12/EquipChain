@@ -145,5 +145,26 @@ VALUES
 '$2a$12$OIYjJHrnZBNfvKfGVBYBr.c7z2LHREG.0lhq6i0gTVGRQFCXXBCzC', 4, true, CURRENT_TIMESTAMP, 'active')
 ON CONFLICT (organization_id, email) DO NOTHING;
 
+
 COMMENT ON TABLE users IS
 'Development seed data: Demo users for all roles and organizations';
+
+-- ================================================================================
+-- Seed equipment Table
+-- Description: Demo equipment for Demo Corp and Test Builder organizations
+-- ================================================================================
+
+INSERT INTO equipment (id, organization_id, serial_number, make, model, location, status_id, owner_id, created_at, created_by)
+VALUES
+  -- Demo Corp equipment
+  ('650e8400-e29b-41d4-a716-446655440100'::uuid, '550e8400-e29b-41d4-a716-446655440000'::uuid, 'CAT-320-ABC123', 'Caterpillar', '320 Excavator', 'Construction Site #7', 1, '550e8400-e29b-41d4-a716-446655440010'::uuid, CURRENT_TIMESTAMP, '550e8400-e29b-41d4-a716-446655440010'::uuid),
+  ('650e8400-e29b-41d4-a716-446655440101'::uuid, '550e8400-e29b-41d4-a716-446655440000'::uuid, 'KOM-PC200-XYZ789', 'Komatsu', 'PC200 Excavator', 'Job Site #3', 1, '550e8400-e29b-41d4-a716-446655440010'::uuid, CURRENT_TIMESTAMP, '550e8400-e29b-41d4-a716-446655440010'::uuid),
+  ('650e8400-e29b-41d4-a716-446655440102'::uuid, '550e8400-e29b-41d4-a716-446655440000'::uuid, 'VOL-A40G-QWE456', 'Volvo', 'A40G Articulated Truck', 'Quarry #2', 1, '550e8400-e29b-41d4-a716-446655440011'::uuid, CURRENT_TIMESTAMP, '550e8400-e29b-41d4-a716-446655440010'::uuid),
+  
+  -- Test Builder equipment
+  ('650e8400-e29b-41d4-a716-446655440110'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid, 'JCB-3CX-DEF123', 'JCB', '3CX Excavator', 'North Site', 1, '550e8400-e29b-41d4-a716-446655440020'::uuid, CURRENT_TIMESTAMP, '550e8400-e29b-41d4-a716-446655440020'::uuid),
+  ('650e8400-e29b-41d4-a716-446655440111'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid, 'LIO-V638-GHI789', 'Liebherr', 'V638 Wheel Loader', 'South Site', 1, '550e8400-e29b-41d4-a716-446655440020'::uuid, CURRENT_TIMESTAMP, '550e8400-e29b-41d4-a716-446655440020'::uuid)
+ON CONFLICT (organization_id, serial_number) DO NOTHING;
+
+COMMENT ON TABLE organizations IS
+'Development seed data: Demo equipment for multi-tenant testing';
