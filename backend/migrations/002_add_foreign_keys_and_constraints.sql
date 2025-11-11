@@ -10,7 +10,6 @@ SET search_path TO equipchain, public;
 -- ================================================================================
 -- Note: organizations.created_by and updated_by reference users.id
 -- These are NOT added as foreign keys to allow system-created orgs with null values
--- Add comment-only documentation:
 
 ALTER TABLE organizations
   ADD CONSTRAINT fk_organizations_created_by
@@ -271,3 +270,81 @@ ALTER TABLE blockchain_transactions
 ALTER TABLE blockchain_transactions
   ADD CONSTRAINT fk_blockchain_transactions_organization_id
     FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+-- ================================================================================
+-- Constraints for technician_profiles
+-- ================================================================================
+
+ALTER TABLE technician_profiles
+  ADD CONSTRAINT fk_technician_profiles_user_id
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE technician_profiles
+  ADD CONSTRAINT fk_technician_profiles_organization_id
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE technician_profiles
+  ADD CONSTRAINT fk_technician_profiles_created_by
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE technician_profiles
+  ADD CONSTRAINT fk_technician_profiles_updated_by
+    FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+  
+-- ================================================================================
+-- Constraints for maintenance_approval_audit
+-- ================================================================================
+
+ALTER TABLE maintenance_approval_audit
+  ADD CONSTRAINT fk_maintenance_approval_audit_maintenance_record_id
+    FOREIGN KEY (maintenance_record_id) REFERENCES maintenance_records(id) ON DELETE CASCADE;
+
+ALTER TABLE maintenance_approval_audit
+  ADD CONSTRAINT fk_maintenance_approval_audit_organization_id
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE maintenance_approval_audit
+  ADD CONSTRAINT fk_maintenance_approval_audit_approver_id
+    FOREIGN KEY (approver_id) REFERENCES users(id) ON DELETE RESTRICT;
+
+-- ================================================================================
+-- Constraints for audit_log
+-- ================================================================================
+
+CREATE INDEX idx_audit_log_organization_id ON audit_log(organization_id);
+COMMENT ON INDEX idx_audit_log_organization_id IS
+'Multi-tenant isolation: List all audit entries for organization.';
+
+CREATE INDEX idx_audit_log_user_id ON audit_log(user_id);
+COMMENT ON INDEX idx_audit_log_user_id IS
+'Find all actions performed by a specific user (for user behavior analysis).';
+
+CREATE INDEX idx_audit_log_entity_type ON audit_log(entity_type);
+COMMENT ON INDEX idx_audit_log_entity_type IS
+'Filter audit logs by entity type (e.g., "show me all maintenance_record changes").';
+
+CREATE INDEX idx_audit_log_entity_id ON audit_log(entity_id);
+COMMENT ON INDEX idx_audit_log_entity_id IS
+'Find all audit entries for a specific entity (e.g., "show me all changes to equipment #XYZ").';
+
+CREATE INDEX idx_audit_log_action ON audit_log(action);
+COMMENT ON INDEX idx_audit_log_action IS
+'Filter by action type (e.g., "show me all deletes" for compliance).';
+
+CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
+COMMENT ON INDEX idx_audit_log_created_at IS
+'Time-range queries: "Show me all audit entries from Jan 1-31".';
+
+CREATE INDEX idx_audit_log_user_id_created_at ON audit_log(user_id, created_at);
+COMMENT ON INDEX idx_audit_log_user_id_created_at IS
+'Find recent actions by a specific user (performance optimization).
+Example: "What did user john@example.com do in the last 24 hours?"';
+
+CREATE INDEX idx_audit_log_organization_id_created_at ON audit_log(organization_id, created_at);
+COMMENT ON INDEX idx_audit_log_organization_id_created_at IS
+'Find recent audit entries for organization (compliance export).
+Example: "Show me all audit entries for acme_corp from last 30 days".';
+
+CREATE INDEX idx_audit_log_entity_type_action ON audit_log(entity_type, action);
+COMMENT ON INDEX idx_audit_log_entity_type_action IS
+'Find specific actions on specific entities (e.g., "all deletes to maintenance_records").';

@@ -821,9 +821,285 @@ COMMENT ON COLUMN blockchain_transactions.solana_cluster IS
 Defaults to mainnet-beta for production.';
 
 -- ================================================================================
+-- Create technician_profiles Table
+-- Description: Extended user profile for technicians tracking licensing, certifications, and availability.
+-- Supports OSHA compliance verification and multi-signature approval workflows.
+-- ================================================================================
+
+CREATE TABLE technician_profiles (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+user_id UUID NOT NULL UNIQUE,
+organization_id UUID NOT NULL,
+
+license_number VARCHAR(50),
+CONSTRAINT license_number_not_empty CHECK (TRIM(license_number) != '' OR license_number IS NULL),
+
+license_type VARCHAR(100),  -- "Equipment Operator", "Supervisor", "Inspector"
+CONSTRAINT license_type_not_empty CHECK (TRIM(license_type) != '' OR license_type IS NULL),
+
+license_state VARCHAR(2), -- state abbreviation
+CONSTRAINT license_state_format CHECK (license_state IS NULL OR license_state ~ '^[A-Z]{2}$'),
+
+license_issued_date DATE,
+license_expiration_date DATE,
+CONSTRAINT license_date_valid CHECK (
+  license_issued_date IS NULL
+  OR license_expiration_date IS NULL
+  OR license_expiration_date > license_issued_date
+),
+
+  -- Certifications (stored as JSONB array for flexibility)
+  -- Example: ["hydraulics", "diesel_engine", "welding", "electrical_systems"]
+  certifications JSONB DEFAULT '[]'::jsonb,
+  CONSTRAINT certifications_is_array CHECK (
+    certifications IS NULL OR jsonb_typeof(certifications) = 'array'
+  ),
+
+  is_available BOOLEAN NOT NULL DEFAULT true,
+  hourly_rate DECIMAL(10, 2),
+  CONSTRAINT hourly_rate_positive CHECK (hourly_rate IS NULL OR hourly_rate > 0),
+
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_by UUID,
+  updated_by UUID
+);
+
+COMMENT ON TABLE technician_profiles IS
+'Extended profile for technician users with licensing, certifications, and availability.
+Supports OSHA compliance verification and multi-signature approval workflows.
+One profile per technician user (1:1 relationship with users table).';
+
+COMMENT ON COLUMN technician_profiles.id IS
+'Primary key - UUID auto-generated.';
+
+COMMENT ON COLUMN technician_profiles.user_id IS
+'Foreign key to users (1:1 unique relationship, added in migration 002).
+User must have role "technician", "supervisor", or "inspector".
+Deleted when user is deleted (CASCADE).';
+
+COMMENT ON COLUMN technician_profiles.organization_id IS
+'Foreign key to organizations for multi-tenant isolation.
+Technician can only work for one organization (or create duplicate profile in another).';
+
+COMMENT ON COLUMN technician_profiles.license_number IS
+'License identifier. Example: "MT-8472", "CA-123456".
+Unique identifier within state/license_type combination.
+Nullable if license not required for this role.';
+
+COMMENT ON COLUMN technician_profiles.license_type IS
+'Type of license. Examples: "Equipment Operator", "Supervisor", "Inspector".
+Determines permission level for maintenance approvals.
+Nullable if role is not licensable.';
+
+COMMENT ON COLUMN technician_profiles.license_state IS
+'US state abbreviation where license was issued. Format: 2 uppercase letters.
+Examples: MT, CO, CA, TX.
+Used for regulatory compliance and insurance verification.';
+
+COMMENT ON COLUMN technician_profiles.license_issued_date IS
+'Date license was originally issued. Used for validation and historical tracking.';
+
+COMMENT ON COLUMN technician_profiles.license_expiration_date IS
+'Date license expires. Used for alerts and compliance verification.
+Query: "is this technician''s license valid today?" = (license_expiration_date >= CURRENT_DATE).
+Alerts should be sent when license expires in 30 days.';
+
+COMMENT ON COLUMN technician_profiles.certifications IS
+'JSONB array of certification codes. Examples: ["hydraulics", "diesel_engine", "welding"].
+Stored as JSON for flexibility (can add new certifications without schema changes).
+Query: "who is certified for hydraulics?" = certifications @> ''"hydraulics"''::jsonb';
+
+COMMENT ON COLUMN technician_profiles.is_available IS
+'true = technician can be assigned work, false = on leave/unavailable.
+Used for scheduling and dashboard "available technicians today" query.';
+
+COMMENT ON COLUMN technician_profiles.hourly_rate IS
+'Billing rate for invoicing and cost tracking. Example: 85.00 (USD per hour).
+Used for integration with billing/ERP systems in future roadmap.
+Nullable if hourly billing not applicable.';
+
+-- ================================================================================
+-- Create maintenance_approval_audit Table
+-- Description: Immutable audit trail of all maintenance approval/rejection events. 
+-- Supports 1-3 signature workflow (technician → supervisor → inspector).
+-- ================================================================================
+
+CREATE TABLE maintenance_approval_audit (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  maintenance_record_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
+
+  approver_id UUID NOT NULL,
+  
+  action VARCHAR(50) NOT NULL,
+  CONSTRAINT approval_action_valid CHECK (action IN ('approved', 'rejected')),
+  
+  comments TEXT,
+  CONSTRAINT comments_not_empty CHECK (TRIM(comments) != '' OR comments IS NULL),
+
+  approval_sequence SMALLINT NOT NULL,
+  CONSTRAINT approval_sequence_positive CHECK (approval_sequence >= 1),
+
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+  ip_address INET,
+  user_agent TEXT
+);
+
+COMMENT ON TABLE maintenance_approval_audit IS
+'Immutable audit trail of maintenance approval/rejection workflow.
+One record per approval/rejection action (not per maintenance record).
+Supports multi-signature workflow: technician submits → supervisor reviews → inspector verifies.
+Never updated after creation (audit integrity).';
+
+COMMENT ON COLUMN maintenance_approval_audit.id IS
+'Primary key - UUID auto-generated.';
+
+COMMENT ON COLUMN maintenance_approval_audit.maintenance_record_id IS
+'Foreign key to maintenance_records.
+Multiple audit records per maintenance (one per approval/rejection).
+CASCADE on delete: if maintenance record deleted, audit entries deleted.';
+
+COMMENT ON COLUMN maintenance_approval_audit.organization_id IS
+'Foreign key to organizations for multi-tenant isolation and efficient queries.
+Denormalized from maintenance_records for faster filtering.';
+
+COMMENT ON COLUMN maintenance_approval_audit.approver_id IS
+'Foreign key to users, who took this action (approved or rejected)?
+Must be user with role "supervisor" or "inspector" (validated in app layer).
+RESTRICT on delete (cannot delete user with pending approvals).';
+
+COMMENT ON COLUMN maintenance_approval_audit.action IS
+'Action taken: "approved" or "rejected".
+- approved: Approver signed off on maintenance (moves workflow forward)
+- rejected: Approver rejected maintenance (sends back to draft for tech to revise)';
+
+COMMENT ON COLUMN maintenance_approval_audit.comments IS
+'Optional comments from approver.
+Used for rejections: explain why rejected.
+Used for approvals: note any special conditions or observations.';
+
+COMMENT ON COLUMN maintenance_approval_audit.approval_sequence IS
+'Position in approval chain (1, 2, or 3).
+- 1: First approval (usually supervisor reviews technician''s submission)
+- 2: Second approval (inspector reviews supervisor''s approval)
+- 3: Third approval (additional oversight for critical work)
+Used to prevent out-of-order approvals.';
+
+COMMENT ON COLUMN maintenance_approval_audit.created_at IS
+'Timestamp when approval/rejection was recorded. Immutable (never changes).
+Used for compliance: "show me all approvals for this record".';
+
+COMMENT ON COLUMN maintenance_approval_audit.ip_address IS
+'IP address of approver. Used for security investigation.
+Example: "192.168.1.100" or "2001:db8::1".
+Helps detect unusual approval patterns.';
+
+COMMENT ON COLUMN maintenance_approval_audit.user_agent IS
+'User-Agent header from approver''s browser/app.
+Used for security investigation: "Which app version approved this?"';
+
+-- ================================================================================
+-- Create audit_log TABLE
+-- Description: System-wide audit trail for compliance, security investigation, and data access tracking.
+-- Populated by application layer (middleware), never directly by users.
+-- ================================================================================
+
+CREATE TABLE audit_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL,
+  user_id UUID,  -- NULL for system actions
+  
+  entity_type VARCHAR(100) NOT NULL,  -- "user", "equipment", "maintenance_record", etc.
+  entity_id UUID NOT NULL,  -- ID of the entity that changed
+  
+  action VARCHAR(50) NOT NULL,
+  CONSTRAINT audit_action_valid CHECK (action IN ('create', 'read', 'update', 'delete')),
+  
+  changes_before JSONB,  -- Old values: {"status": "draft", "notes": "Old notes"}
+  changes_after JSONB,   -- New values: {"status": "submitted", "notes": "New notes"}
+  
+  -- Request context (for security investigation)
+  ip_address INET,  -- "192.168.1.100"
+  user_agent TEXT,  -- "Mozilla/5.0..."
+  
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE audit_log IS
+'System audit trail for compliance, security investigation, and data access tracking.
+Populated by application middleware for all API operations.
+Immutable (no updates after creation).
+Used for GDPR/HIPAA/OSHA compliance, security audits, and fraud detection.';
+
+COMMENT ON COLUMN audit_log.id IS
+'Primary key - UUID auto-generated.';
+
+COMMENT ON COLUMN audit_log.organization_id IS
+'Foreign key to organizations.
+Multi-tenant isolation: organization admins only see their own audit entries.';
+
+COMMENT ON COLUMN audit_log.user_id IS
+'Foreign key to users.
+NULL for system actions (scheduled jobs, webhooks).
+SET NULL on delete (user can be deleted but audit record remains).';
+
+COMMENT ON COLUMN audit_log.entity_type IS
+'Type of entity that was accessed/modified. Examples:
+- "equipment" - equipment record accessed
+- "maintenance_record" - maintenance record accessed
+- "maintenance_approval_audit" - approval/rejection recorded
+- "user" - user account accessed
+- "technician_profile" - technician profile accessed
+- "blockchain_transaction" - blockchain data accessed
+Used to filter audit logs by entity type.';
+
+COMMENT ON COLUMN audit_log.entity_id IS
+'UUID of the entity that was accessed/modified.
+Combined with entity_type, can reconstruct what changed: "equipment ABC123 was updated"';
+
+COMMENT ON COLUMN audit_log.action IS
+'CRUD action performed:
+- create: New entity created (INSERT)
+- read: Entity data accessed/queried (SELECT)
+- update: Existing entity modified (UPDATE)
+- delete: Entity deleted (DELETE)
+Note: Only log read operations for sensitive endpoints (equipment, maintenance records).
+Do not log routine non-sensitive reads (performance consideration).';
+
+COMMENT ON COLUMN audit_log.changes_before IS
+'JSONB snapshot of entity state BEFORE the change (for update actions).
+Example: {"status": "draft", "notes": "Old notes", "submitted_at": null}
+NULL for create/read/delete actions.
+Used to show "what changed?" in compliance reports.';
+
+COMMENT ON COLUMN audit_log.changes_after IS
+'JSONB snapshot of entity state AFTER the change (for update actions).
+Example: {"status": "submitted", "notes": "New notes", "submitted_at": "2025-11-11T08:00:00Z"}
+NULL for create/read/delete actions.
+Combined with changes_before, shows exact differences.';
+
+COMMENT ON COLUMN audit_log.ip_address IS
+'IP address of user who performed the action. Examples: "192.168.1.100", "2001:db8::1".
+Used for security investigation: "Did authorized admin approve this, or was account compromised?"
+Can detect: VPN usage, impossible travel (logged in from two continents in 5 minutes).';
+
+COMMENT ON COLUMN audit_log.user_agent IS
+'User-Agent header from browser/client (not always accurate, spoofable).
+Example: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+Used to detect automated/unusual access patterns (bot vs human behavior).';
+
+COMMENT ON COLUMN audit_log.created_at IS
+'Timestamp when audit entry was recorded. Immutable (never changes).
+Precise ordering of events (used to rebuild state changes over time).
+Example: Replay all updates to equipment #ABC123 from Jan 1 - Jan 31 to show full history.';
+
+-- ================================================================================
 -- Create Indexes on All Tables
 -- ================================================================================
 
+-- users Indexes
 CREATE INDEX idx_users_email_org ON users(organization_id, email);
 COMMENT ON INDEX idx_users_email_org IS
 'Fast lookup during login: find user by email within their organization.';
@@ -848,6 +1124,7 @@ CREATE INDEX idx_users_last_login_at ON users(last_login_at);
 COMMENT ON INDEX idx_users_last_login_at IS
 'Identify inactive users (last_login_at < 90 days ago) for compliance and cleanup.';
 
+-- organizations Indexes
 CREATE INDEX idx_organizations_code ON organizations(code);
 COMMENT ON INDEX idx_organizations_code IS
 'Fast lookup of organization by code identifier.';
@@ -856,10 +1133,12 @@ CREATE INDEX idx_organizations_status ON organizations(status);
 COMMENT ON INDEX idx_organizations_status IS
 'Filter active organizations (exclude deleted/suspended).';
 
+-- user_password_history Indexes
 CREATE INDEX idx_user_password_history_user_id ON user_password_history(user_id);
 COMMENT ON INDEX idx_user_password_history_user_id IS
 'Retrieve password history for a specific user during password change.';
 
+-- role_lookup Indexes
 CREATE INDEX idx_role_lookup_code ON role_lookup(code);
 COMMENT ON INDEX idx_role_lookup_code IS 
 'Fast lookups by role code in application authorization logic';
@@ -868,6 +1147,7 @@ CREATE INDEX idx_role_lookup_status ON role_lookup(status);
 COMMENT ON INDEX idx_role_lookup_status IS
 'Filter active/deprecated roles for dashboard and user management';
 
+-- maintenance_status_lookup Indexes
 CREATE INDEX idx_maintenance_status_lookup_code ON maintenance_status_lookup(code);
 COMMENT ON INDEX idx_maintenance_status_lookup_code IS
 'Fast status code lookups when updating maintenance record workflow.';
@@ -876,6 +1156,7 @@ CREATE INDEX idx_maintenance_status_lookup_workflow ON maintenance_status_lookup
 COMMENT ON INDEX idx_maintenance_status_lookup_workflow IS 
 'Query valid next workflow transitions (statuses where sequence > current).';
 
+-- maintenance_type_lookup Indexes
 CREATE INDEX idx_maintenance_type_lookup_code ON maintenance_type_lookup(code);
 COMMENT ON INDEX idx_maintenance_type_lookup_code IS 
 'Fast lookups by maintenance type code during record creation';
@@ -884,6 +1165,7 @@ CREATE INDEX idx_maintenance_type_lookup_status ON maintenance_type_lookup(statu
 COMMENT ON INDEX idx_maintenance_type_lookup_status IS 
 'Filter active maintenance types for UI dropdowns and validation.';
 
+-- equipment Indexes
 CREATE INDEX idx_equipment_status_lookup_code ON equipment_status_lookup(code);
 COMMENT ON INDEX idx_equipment_status_lookup_code IS 
 'Fast lookups by equipment status code during equipment lifecycle transitions.';
@@ -912,6 +1194,7 @@ CREATE INDEX idx_equipment_created_at ON equipment(created_at);
 COMMENT ON INDEX idx_equipment_created_at IS
 'Time-based queries for reporting.';
 
+--maintenance_records Indexes
 CREATE INDEX idx_maintenance_records_organization_id ON maintenance_records(organization_id);
 COMMENT ON INDEX idx_maintenance_records_organization_id IS
 'Multi-tenant isolation: List all maintenance for organization.';
@@ -944,6 +1227,7 @@ CREATE INDEX idx_maintenance_records_confirmed_at ON maintenance_records(confirm
 COMMENT ON INDEX idx_maintenance_records_confirmed_at IS
 'Query confirmed maintenance in date range (fast confirmation lookups).';
 
+-- maintenance_photos Indexes
 CREATE INDEX idx_maintenance_photos_maintenance_record_id ON maintenance_photos(maintenance_record_id);
 COMMENT ON INDEX idx_maintenance_photos_maintenance_record_id IS
 'Retrieve all photos for maintenance record (typically 3 photos per record).';
@@ -960,7 +1244,7 @@ CREATE INDEX idx_maintenance_photos_created_at ON maintenance_photos(created_at)
 COMMENT ON INDEX idx_maintenance_photos_created_at IS
 'Time-based queries for storage analytics.';
 
-
+-- blockchain_transactions Indexes
 CREATE INDEX idx_blockchain_transactions_maintenance_record_id ON blockchain_transactions(maintenance_record_id);
 COMMENT ON INDEX idx_blockchain_transactions_maintenance_record_id IS
 'Fast lookup: Get blockchain info for maintenance record.';
@@ -988,6 +1272,52 @@ COMMENT ON INDEX idx_blockchain_transactions_block_number IS
 CREATE INDEX idx_blockchain_transactions_confirmed_at ON blockchain_transactions(confirmed_at);
 COMMENT ON INDEX idx_blockchain_transactions_confirmed_at IS
 'Query confirmed transactions in date range.';
+
+-- technician_profiles Indexes
+CREATE INDEX idx_technician_profiles_user_id ON technician_profiles(user_id);
+COMMENT ON INDEX idx_technician_profiles_user_id IS
+'Fast lookup by user_id (unique).';
+
+CREATE INDEX idx_technician_profiles_organization_id ON technician_profiles(organization_id);
+COMMENT ON INDEX idx_technician_profiles_organization_id IS
+'List all technicians in organization for staffing/scheduling.';
+
+CREATE INDEX idx_technician_profiles_license_state ON technician_profiles(license_state);
+COMMENT ON INDEX idx_technician_profiles_license_state IS
+'Query technicians by license state (regulatory reporting).';
+
+CREATE INDEX idx_technician_profiles_license_expiration_date ON technician_profiles(license_expiration_date);
+COMMENT ON INDEX idx_technician_profiles_license_expiration_date IS
+'Find expiring licenses: license_expiration_date < NOW() + INTERVAL ''30 DAYS''';
+
+CREATE INDEX idx_technician_profiles_is_available ON technician_profiles(is_available);
+COMMENT ON INDEX idx_technician_profiles_is_available IS
+'List available technicians for assignment and scheduling.';
+
+-- maintenance_approval_audit Indexes
+CREATE INDEX idx_maintenance_approval_audit_maintenance_record_id ON maintenance_approval_audit(maintenance_record_id);
+COMMENT ON INDEX idx_maintenance_approval_audit_maintenance_record_id IS
+'List all approvals/rejections for a maintenance record (show approval history).';
+
+CREATE INDEX idx_maintenance_approval_audit_approver_id ON maintenance_approval_audit(approver_id);
+COMMENT ON INDEX idx_maintenance_approval_audit_approver_id IS
+'List all approvals made by a specific approver (audit trail by user).';
+
+CREATE INDEX idx_maintenance_approval_audit_action ON maintenance_approval_audit(action);
+COMMENT ON INDEX idx_maintenance_approval_audit_action IS
+'Count approvals vs rejections, find all rejections for a time period.';
+
+CREATE INDEX idx_maintenance_approval_audit_organization_id ON maintenance_approval_audit(organization_id);
+COMMENT ON INDEX idx_maintenance_approval_audit_organization_id IS
+'Multi-tenant isolation: list all approvals for organization.';
+
+CREATE INDEX idx_maintenance_approval_audit_created_at ON maintenance_approval_audit(created_at);
+COMMENT ON INDEX idx_maintenance_approval_audit_created_at IS
+'Time-based queries: "Show me all approvals from last 30 days".';
+
+CREATE INDEX idx_maintenance_approval_audit_maintenance_record_created_at ON maintenance_approval_audit(maintenance_record_id, created_at);
+COMMENT ON INDEX idx_maintenance_approval_audit_maintenance_record_created_at IS
+'Optimized query: get all approvals for a maintenance record in chronological order.';
 
 -- ================================================================================
 -- Create Trigger Function for Updated_At Timestamp (Users/Organizations)
@@ -1047,7 +1377,7 @@ COMMENT ON TRIGGER trigger_organizations_update_at ON organizations IS
 'Automatically updates organizations.updated_at timestamp on row modification.';
 
 -- ================================================================================
--- Create Trigers for Equipment, Maintenance Records, Maintenance PHotos, and Blockchain Transactions
+-- Create Triggers for Equipment and Maintenance Records
 -- Description: Apply timestamp update function to equipment and maintenance_records.
 -- ================================================================================
 
@@ -1066,6 +1396,282 @@ FOR EACH ROW
 
 COMMENT ON TRIGGER trigger_maintenance_records_update_at ON maintenance_records IS 
 'Automatically updates maintenance_records.updated_at timestamp on row modification';
+
+
+-- ================================================================================
+-- Create Triggers for technician_profiles
+-- Description: defines updated_at, validate_technician_license, get_technicians_by_certification, 
+-- is_technician_qualified_to_approve, get_expiring_licenses, and is_technician_qualified_to_approve
+-- functions and triggers
+-- ================================================================================
+
+CREATE TRIGGER trigger_technician_profiles_update_at
+BEFORE UPDATE ON technician_profiles
+FOR EACH ROW
+EXECUTE FUNCTION update_user_timestamp();
+
+COMMENT ON TRIGGER trigger_technician_profiles_update_at ON technician_profiles IS
+'Automatically updates technician_profiles.updated_at on row modification.';
+
+
+CREATE OR REPLACE FUNCTION validate_technician_license()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.license_expiration_date IS NOT NULL 
+     AND NEW.license_expiration_date < CURRENT_DATE
+     AND OLD.license_expiration_date IS DISTINCT FROM NEW.license_expiration_date THEN
+    RAISE WARNING 'Technician license has expired: % (expired %)', 
+      NEW.license_number, 
+      NEW.license_expiration_date;
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_validate_technician_license
+BEFORE INSERT OR UPDATE ON technician_profiles
+FOR EACH ROW
+EXECUTE FUNCTION validate_technician_license();
+
+COMMENT ON TRIGGER trigger_validate_technician_license ON technician_profiles IS
+'Validates license expiration dates during INSERT/UPDATE operations.';
+
+CREATE OR REPLACE FUNCTION get_technicians_by_certification(
+  p_org_id UUID,
+  p_certification VARCHAR(100),
+  OUT technician_id UUID,
+  OUT license_number VARCHAR(50),
+  OUT license_type VARCHAR(100),
+  OUT is_available BOOLEAN,
+  OUT hourly_rate DECIMAL(10, 2)
+)
+RETURNS SETOF record
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT 
+    tp.user_id,
+    tp.license_number,
+    tp.license_type,
+    tp.is_available,
+    tp.hourly_rate
+  FROM technician_profiles tp
+  WHERE 
+    tp.organization_id = p_org_id
+    AND tp.certifications @> to_jsonb(p_certification)::jsonb
+    AND (tp.license_expiration_date IS NULL OR tp.license_expiration_date >= CURRENT_DATE)
+  ORDER BY tp.is_available DESC, tp.created_at;
+$$;
+
+COMMENT ON FUNCTION get_technicians_by_certification(UUID, VARCHAR) IS
+'Get all technicians in organization with specific certification and valid license.
+Returns available technicians first.
+Example: SELECT * FROM get_technicians_by_certification(org_id, ''hydraulics'')';
+
+CREATE OR REPLACE FUNCTION get_expiring_licenses(
+  p_org_id UUID,
+  p_days_until_expiry INT DEFAULT 30,
+  OUT technician_id UUID,
+  OUT license_number VARCHAR(50),
+  OUT license_type VARCHAR(100),
+  OUT license_expiration_date DATE,
+  OUT days_until_expiry INT
+)
+RETURNS SETOF record
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT 
+    tp.user_id,
+    tp.license_number,
+    tp.license_type,
+    tp.license_expiration_date,
+    (tp.license_expiration_date - CURRENT_DATE)::INT
+  FROM technician_profiles tp
+  WHERE 
+    tp.organization_id = p_org_id
+    AND tp.license_expiration_date IS NOT NULL
+    AND tp.license_expiration_date BETWEEN CURRENT_DATE AND CURRENT_DATE + (p_days_until_expiry || ' days')::INTERVAL
+  ORDER BY tp.license_expiration_date ASC;
+$$;
+
+COMMENT ON FUNCTION get_expiring_licenses(UUID, INT) IS
+'Get technicians with licenses expiring within N days (default 30).
+Used for automated email alerts about expiring certifications.
+Example: SELECT * FROM get_expiring_licenses(org_id, 30)';
+
+CREATE OR REPLACE FUNCTION is_technician_qualified_to_approve(
+  p_user_id UUID
+)
+RETURNS BOOLEAN
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM technician_profiles tp
+    WHERE 
+      tp.user_id = p_user_id
+      AND (tp.license_expiration_date IS NULL OR tp.license_expiration_date >= CURRENT_DATE)
+      AND tp.license_type IN ('Supervisor', 'Inspector')
+  );
+$$;
+
+COMMENT ON FUNCTION is_technician_qualified_to_approve(UUID) IS
+'Check if technician is qualified to approve maintenance records.
+Returns true if:
+  - Technician profile exists
+  - License is not expired
+  - License type is Supervisor or Inspector
+Returns false otherwise (not qualified to approve).';
+
+-- ================================================================================
+-- Create triggers for maintenance_approval_audit
+-- Description: Defines get_approval_history, has_maintenance_been_approved,
+-- has_maintenance_been_approved, get_latest_approval_action, and count_maintenance_rejections 
+-- functions and triggers
+-- ================================================================================
+
+CREATE OR REPLACE FUNCTION get_approval_history(
+  p_maintenance_record_id UUID,
+  OUT approval_sequence SMALLINT,
+  OUT approver_name VARCHAR(255),
+  OUT approver_license VARCHAR(50),
+  OUT action VARCHAR(50),
+  OUT comments TEXT,
+  OUT created_at TIMESTAMP WITH TIME ZONE
+)
+RETURNS SETOF record
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT 
+    maa.approval_sequence,
+    u.email as approver_name,
+    tp.license_number as approver_license,
+    maa.action,
+    maa.comments,
+    maa.created_at
+  FROM maintenance_approval_audit maa
+  LEFT JOIN users u ON maa.approver_id = u.id
+  LEFT JOIN technician_profiles tp ON u.id = tp.user_id
+  WHERE maa.maintenance_record_id = p_maintenance_record_id
+  ORDER BY maa.approval_sequence ASC, maa.created_at ASC;
+$$;
+
+COMMENT ON FUNCTION get_approval_history(UUID) IS
+'Get complete approval workflow history for a maintenance record.
+Returns all approvals/rejections in chronological order.
+Includes approver name, license, action, comments, and timestamp.
+Used for compliance reporting and blockchain proof verification.';
+
+CREATE OR REPLACE FUNCTION has_maintenance_been_approved(
+  p_maintenance_record_id UUID
+)
+RETURNS BOOLEAN
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM maintenance_approval_audit
+    WHERE 
+      maintenance_record_id = p_maintenance_record_id
+      AND action = 'approved'
+    LIMIT 1
+  );
+$$;
+
+COMMENT ON FUNCTION has_maintenance_been_approved(UUID) IS
+'Check if maintenance record has at least one approval.
+Returns true if "approved" action exists in audit trail.
+Returns false if only rejections exist or no approvals.
+Used in workflow validation: can''t move to blockchain without approval.';
+
+CREATE OR REPLACE FUNCTION get_latest_approval_action(
+  p_maintenance_record_id UUID,
+  OUT action VARCHAR(50),
+  OUT approver_name VARCHAR(255),
+  OUT created_at TIMESTAMP WITH TIME ZONE
+)
+RETURNS record
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT 
+    maa.action,
+    u.email,
+    maa.created_at
+  FROM maintenance_approval_audit maa
+  LEFT JOIN users u ON maa.approver_id = u.id
+  WHERE maa.maintenance_record_id = p_maintenance_record_id
+  ORDER BY maa.created_at DESC
+  LIMIT 1;
+$$;
+
+COMMENT ON FUNCTION get_latest_approval_action(UUID) IS
+'Get the most recent approval/rejection for a maintenance record.
+Useful for determining current workflow state without querying maintenance_records table.
+Returns NULL if no approvals/rejections exist.';
+
+CREATE OR REPLACE FUNCTION count_maintenance_rejections(
+  p_maintenance_record_id UUID
+)
+RETURNS INT
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT COUNT(*)::INT
+  FROM maintenance_approval_audit
+  WHERE 
+    maintenance_record_id = p_maintenance_record_id
+    AND action = 'rejected';
+$$;
+
+COMMENT ON FUNCTION count_maintenance_rejections(UUID) IS
+'Count how many times a maintenance record was rejected by approvers.
+Used to identify problematic records (rejected 3+ times = needs escalation).';
+
+CREATE OR REPLACE FUNCTION validate_approval_sequence(
+  p_maintenance_record_id UUID,
+  p_next_sequence SMALLINT
+)
+RETURNS BOOLEAN
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT 
+    CASE 
+      WHEN p_next_sequence = 1 THEN NOT EXISTS (
+        SELECT 1 FROM maintenance_approval_audit 
+        WHERE maintenance_record_id = p_maintenance_record_id AND action = 'approved'
+      )
+      WHEN p_next_sequence > 1 THEN EXISTS (
+        SELECT 1 FROM maintenance_approval_audit 
+        WHERE 
+          maintenance_record_id = p_maintenance_record_id 
+          AND approval_sequence = p_next_sequence - 1
+          AND action = 'approved'
+      )
+      ELSE FALSE
+    END;
+$$;
+
+COMMENT ON FUNCTION validate_approval_sequence(UUID, SMALLINT) IS
+'Validate that approval sequence is correct (no skipping steps).
+Returns true if next sequence is valid, false if trying to skip approval step.
+- Sequence 1: First approval (from draft → submitted)
+- Sequence 2: Second approval (from first approval → ready for blockchain)
+- Sequence 3: Third approval (optional, for triple-sig critical work)';
 
 -- ================================================================================
 -- Create Triggers for All Lookup Tables

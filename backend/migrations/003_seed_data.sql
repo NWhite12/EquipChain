@@ -313,3 +313,37 @@ ON CONFLICT DO NOTHING;
 
 COMMENT ON TABLE blockchain_transactions IS
 'Development seed data: Demo blockchain transactions showing various states (confirmed, pending, failed)';
+
+-- ================================================================================
+-- Seed technician_profiles Table
+-- Description: Demo technician_profiles for Demo Corp and Test Builder organizations
+-- ================================================================================
+INSERT INTO technician_profiles (id, user_id, organization_id, license_number, license_type, license_state, license_issued_date, license_expiration_date, certifications, is_available, hourly_rate, created_at, created_by)
+VALUES
+  -- Demo Corp: Technician with hydraulics certification
+  ('950e8400-e29b-41d4-a716-446655440010'::uuid, '550e8400-e29b-41d4-a716-446655440012'::uuid, '550e8400-e29b-41d4-a716-446655440000'::uuid, 'MT-8472', 'Equipment Operator', 'MT', '2022-03-15'::date, '2026-03-14'::date, '["hydraulics", "diesel_engine"]'::jsonb, true, 85.00, CURRENT_TIMESTAMP, '550e8400-e29b-41d4-a716-446655440010'::uuid),
+  
+  -- Demo Corp: Supervisor with approval authority
+  ('950e8400-e29b-41d4-a716-446655440011'::uuid, '550e8400-e29b-41d4-a716-446655440011'::uuid, '550e8400-e29b-41d4-a716-446655440000'::uuid, 'SV-3021', 'Supervisor', 'MT', '2020-06-01'::date, '2027-05-31'::date, '["hydraulics", "diesel_engine", "welding", "electrical_systems"]'::jsonb, true, 125.00, CURRENT_TIMESTAMP, '550e8400-e29b-41d4-a716-446655440010'::uuid),
+  
+  -- Test Builder: Technician with welding certification
+  ('950e8400-e29b-41d4-a716-446655440012'::uuid, '550e8400-e29b-41d4-a716-446655440022'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid, 'CO-5847', 'Equipment Operator', 'CO', '2021-09-20'::date, '2025-09-19'::date, '["welding", "electrical_systems"]'::jsonb, true, 90.00, CURRENT_TIMESTAMP, '550e8400-e29b-41d4-a716-446655440020'::uuid),
+  
+  -- Test Builder: Supervisor with approval authority
+  ('950e8400-e29b-41d4-a716-446655440013'::uuid, '550e8400-e29b-41d4-a716-446655440021'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid, 'IN-7293', 'Inspector', 'CO', '2019-02-14'::date, '2027-02-13'::date, '["hydraulics", "diesel_engine", "welding", "electrical_systems"]'::jsonb, true, 140.00, CURRENT_TIMESTAMP, '550e8400-e29b-41d4-a716-446655440020'::uuid)
+ON CONFLICT (user_id) DO NOTHING;
+
+COMMENT ON TABLE technician_profiles IS
+'Development seed data: Demo technician profiles with licensing, certification, and availability constraints.';
+
+INSERT INTO maintenance_approval_audit (id, maintenance_record_id, organization_id, approver_id, action, comments, approval_sequence, created_at, ip_address, user_agent)
+VALUES
+  -- Demo Corp: Supervisor approved first maintenance record
+  ('b50e8400-e29b-41d4-a716-446655440010'::uuid, '750e8400-e29b-41d4-a716-446655440100'::uuid, '550e8400-e29b-41d4-a716-446655440000'::uuid, '550e8400-e29b-41d4-a716-446655440011'::uuid, 'approved', 'Approved - all documentation complete and photos clear', 1, CURRENT_TIMESTAMP - INTERVAL '2 hours', '192.168.1.100'::inet, 'Mozilla/5.0'),
+  
+  -- Test Builder: Inspector approved first maintenance record
+  ('b50e8400-e29b-41d4-a716-446655440011'::uuid, '750e8400-e29b-41d4-a716-446655440110'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid, '550e8400-e29b-41d4-a716-446655440021'::uuid, 'approved', 'Inspection complete - ready for blockchain confirmation', 1, CURRENT_TIMESTAMP - INTERVAL '1 hour', '192.168.1.101'::inet, 'Mozilla/5.0')
+ON CONFLICT DO NOTHING;
+
+COMMENT ON TABLE maintenance_approval_audit IS
+'Development seed data: Demo approval workflow history';
