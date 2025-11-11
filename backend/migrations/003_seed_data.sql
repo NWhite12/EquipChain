@@ -214,7 +214,6 @@ COMMENT ON TABLE maintenance_photos IS
 -- Description: Demo blockchain transactions for Demo Corp and Test Builder organizations
 -- ===============================================================================
 
-
 INSERT INTO blockchain_transactions (
   id,
   maintenance_record_id,
@@ -318,6 +317,7 @@ COMMENT ON TABLE blockchain_transactions IS
 -- Seed technician_profiles Table
 -- Description: Demo technician_profiles for Demo Corp and Test Builder organizations
 -- ================================================================================
+
 INSERT INTO technician_profiles (id, user_id, organization_id, license_number, license_type, license_state, license_issued_date, license_expiration_date, certifications, is_available, hourly_rate, created_at, created_by)
 VALUES
   -- Demo Corp: Technician with hydraulics certification
@@ -347,3 +347,38 @@ ON CONFLICT DO NOTHING;
 
 COMMENT ON TABLE maintenance_approval_audit IS
 'Development seed data: Demo approval workflow history';
+
+-- ================================================================================
+-- Seed equipment_maintenance_schedule Table
+-- Description: Demo equipment_maintenance_schedule for Demo Corp and Test Builder organizations
+-- ================================================================================
+
+INSERT INTO equipment_maintenance_schedule (id, equipment_id, organization_id, maintenance_type_id, scheduled_frequency_days, last_maintenance_date, next_due_date, created_at, created_by)
+VALUES
+  -- Demo Corp: Preventive maintenance every 30 days for CAT excavator
+  ('a60e8400-e29b-41d4-a716-446655440100'::uuid, '650e8400-e29b-41d4-a716-446655440100'::uuid, '550e8400-e29b-41d4-a716-446655440000'::uuid, 1, 30, (CURRENT_DATE - INTERVAL '10 days')::date, (CURRENT_DATE + INTERVAL '20 days')::date, CURRENT_TIMESTAMP, '550e8400-e29b-41d4-a716-446655440010'::uuid),
+  
+  -- Test Builder: Inspection every 60 days for JCB excavator (OVERDUE example)
+  ('a60e8400-e29b-41d4-a716-446655440110'::uuid, '650e8400-e29b-41d4-a716-446655440110'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid, 4, 60, (CURRENT_DATE - INTERVAL '100 days')::date, (CURRENT_DATE - INTERVAL '40 days')::date, CURRENT_TIMESTAMP, '550e8400-e29b-41d4-a716-446655440020'::uuid)
+ON CONFLICT DO NOTHING;
+
+COMMENT ON TABLE equipment_maintenance_schedule IS
+'Development seed data: Demo maintenance schedules including one overdue example for testing alerts.';
+
+
+-- ================================================================================
+-- Seed organizations_integrations Table
+-- Description: Demo organizations_integrations for Demo Corp and Test Builder organizations
+-- ================================================================================
+
+INSERT INTO organizations_integrations (id, organization_id, integration_type, integration_name, webhook_url, is_active, test_mode, created_at, created_by)
+VALUES
+  -- Demo Corp: Staging webhook (test mode - no real data sent)
+  ('c70e8400-e29b-41d4-a716-446655440100'::uuid, '550e8400-e29b-41d4-a716-446655440000'::uuid, 'insurance_api', 'Acme Insurance Staging', 'https://staging.acme-insurance.com/equipchain/webhook', true, true, CURRENT_TIMESTAMP, '550e8400-e29b-41d4-a716-446655440010'::uuid),
+  
+  -- Test Builder: Production integration (currently disabled for testing)
+  ('c70e8400-e29b-41d4-a716-446655440110'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid, 'procore', 'Procore Main Site', 'https://procore.api.com/webhooks/equipchain', false, false, CURRENT_TIMESTAMP, '550e8400-e29b-41d4-a716-446655440020'::uuid)
+ON CONFLICT DO NOTHING;
+
+COMMENT ON TABLE organizations_integrations IS
+'Development seed data: Demo integration configurations for testing webhook flows.';

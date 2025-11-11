@@ -348,3 +348,51 @@ Example: "Show me all audit entries for acme_corp from last 30 days".';
 CREATE INDEX idx_audit_log_entity_type_action ON audit_log(entity_type, action);
 COMMENT ON INDEX idx_audit_log_entity_type_action IS
 'Find specific actions on specific entities (e.g., "all deletes to maintenance_records").';
+
+-- ================================================================================
+-- Constraints equipment_maintenance_schedule
+-- ================================================================================
+
+ALTER TABLE equipment_maintenance_schedule
+  ADD CONSTRAINT fk_equipment_maintenance_schedule_equipment_id
+    FOREIGN KEY (equipment_id) REFERENCES equipment(id) ON DELETE CASCADE;
+
+ALTER TABLE equipment_maintenance_schedule
+  ADD CONSTRAINT fk_equipment_maintenance_schedule_organization_id
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE equipment_maintenance_schedule
+  ADD CONSTRAINT fk_equipment_maintenance_schedule_maintenance_type_id
+    FOREIGN KEY (maintenance_type_id) REFERENCES maintenance_type_lookup(id) ON DELETE RESTRICT;
+
+ALTER TABLE equipment_maintenance_schedule
+  ADD CONSTRAINT fk_equipment_maintenance_schedule_created_by
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE equipment_maintenance_schedule
+  ADD CONSTRAINT fk_equipment_maintenance_schedule_updated_by
+    FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- ================================================================================
+-- Constraints organizations_integrations
+-- ================================================================================
+
+ALTER TABLE organizations_integrations
+  ADD CONSTRAINT fk_organizations_integrations_organization_id
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE organizations_integrations
+  ADD CONSTRAINT fk_organizations_integrations_created_by
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE organizations_integrations
+  ADD CONSTRAINT fk_organizations_integrations_updated_by
+    FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+    
+-- ================================================================================
+-- Constraints email_queue
+-- ================================================================================
+
+ALTER TABLE email_queue
+  ADD CONSTRAINT fk_email_queue_organization_id
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;

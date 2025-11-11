@@ -1096,6 +1096,342 @@ Precise ordering of events (used to rebuild state changes over time).
 Example: Replay all updates to equipment #ABC123 from Jan 1 - Jan 31 to show full history.';
 
 -- ================================================================================
+-- Create equipment_maintenance_schedule
+-- Description: Tracks preventive maintenance schedules for equipment. Enables overdue 
+-- alerts, OSHA compliance verification, and equipment health dashboards. Supports 
+-- recurring maintenance tasks with frequency-based scheduling.
+-- ================================================================================
+
+CREATE TABLE equipment_maintenance_schedule (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  equipment_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
+  
+  maintenance_type_id SMALLINT NOT NULL,
+  
+  scheduled_frequency_days INTEGER NOT NULL,
+  CONSTRAINT scheduled_frequency_positive CHECK (scheduled_frequency_days > 0),
+  
+  last_maintenance_date DATE,
+  next_due_date DATE NOT NULL,
+  
+  overdue_alert_sent_at TIMESTAMP WITH TIME ZONE,
+  due_soon_alert_sent_at TIMESTAMP WITH TIME ZONE,
+  
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_by UUID,
+  updated_by UUID,
+  
+  CONSTRAINT last_maintenance_before_next CHECK (
+    last_maintenance_date IS NULL 
+    OR next_due_date > last_maintenance_date
+  )
+);
+
+COMMENT ON TABLE equipment_maintenance_schedule IS
+'Tracks preventive maintenance schedules for equipment. Enables overdue maintenance alerts and OSHA compliance reporting.
+Supports recurring maintenance tasks: e.g., "change oil every 500 hours" or "inspect hydraulics every 30 days".
+One schedule per equipment + maintenance_type combination.
+Used for equipment health dashboards and proactive maintenance planning.';
+
+COMMENT ON COLUMN equipment_maintenance_schedule.id IS
+'Primary key - UUID auto-generated.';
+
+COMMENT ON COLUMN equipment_maintenance_schedule.equipment_id IS
+'Foreign key to equipment.
+Identifies which equipment has this maintenance schedule.
+CASCADE on delete: if equipment deleted, schedules deleted.';
+
+COMMENT ON COLUMN equipment_maintenance_schedule.organization_id IS
+'Foreign key to organizations for multi-tenant isolation.
+Denormalized from equipment for faster filtering in dashboard queries.';
+
+COMMENT ON COLUMN equipment_maintenance_schedule.maintenance_type_id IS
+'Foreign key to maintenance_type_lookup.
+Type of maintenance: preventive, inspection, corrective, emergency.
+Different types have different frequency requirements and alert rules.';
+
+COMMENT ON COLUMN equipment_maintenance_schedule.scheduled_frequency_days IS
+'How often this maintenance should occur (in days). Examples: 30, 90, 365.
+Used to calculate next_due_date after each completed maintenance: next_due_date = last_maintenance_date + scheduled_frequency_days.
+Immutable after creation (prevents losing audit trail of schedule changes).';
+
+COMMENT ON COLUMN equipment_maintenance_schedule.last_maintenance_date IS
+'Date when this maintenance was last completed. Updated after maintenance_records confirms on blockchain.
+NULL if maintenance has never been done for this schedule.
+Used as starting point to calculate when next maintenance is due.';
+
+COMMENT ON COLUMN equipment_maintenance_schedule.next_due_date IS
+'Calculated date when this maintenance is next due.
+Critical for dashboard queries: "is equipment overdue?" = (next_due_date < CURRENT_DATE).
+Critical for alert queries: "equipment due in 30 days?" = (next_due_date BETWEEN NOW() AND NOW() + 30 DAYS).
+Updated after each completed maintenance record (via update_maintenance_schedule_after_completion function).';
+
+COMMENT ON COLUMN equipment_maintenance_schedule.overdue_alert_sent_at IS
+'Timestamp when "overdue" alert email was sent. NULL if not sent.
+Prevents duplicate alert emails for same overdue maintenance.
+Reset to NULL when next maintenance is completed (allows new alerts for next cycle).
+Used by cron job: only send alert if overdue_alert_sent_at IS NULL AND next_due_date < TODAY.';
+
+COMMENT ON COLUMN equipment_maintenance_schedule.due_soon_alert_sent_at IS
+'Timestamp when "due in 30 days" alert email was sent. NULL if not sent.
+Allows "nudging" technicians 30 days before maintenance is due.
+Reset to NULL when next maintenance is completed.
+Used by cron job: send if next_due_date is 30 days away AND due_soon_alert_sent_at IS NULL.';
+
+COMMENT ON COLUMN equipment_maintenance_schedule.created_by IS
+'User ID of admin/supervisor who created this maintenance schedule.
+Tracks who established the preventive maintenance plan.';
+
+COMMENT ON COLUMN equipment_maintenance_schedule.updated_by IS
+'User ID of who last modified this schedule (admin changing frequency, etc).
+Auto-updated by trigger_equipment_maintenance_schedule_update_at.';
+
+
+-- ================================================================================
+-- Create organizations_integrations
+-- Description: Stores third-party API credentials and webhook configurations for 
+-- insurance companies, ERP systems (Procore, Autodesk), and other integrations. 
+-- ================================================================================
+
+CREATE TABLE organizations_integrations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL,
+  
+  integration_type VARCHAR(100) NOT NULL,
+  CONSTRAINT integration_type_not_empty CHECK (TRIM(integration_type) != ''),
+  
+  integration_name VARCHAR(255),
+  CONSTRAINT integration_name_not_empty CHECK (integration_name IS NULL OR TRIM(integration_name) != ''),
+  
+  api_key_encrypted TEXT,
+  CONSTRAINT api_key_not_empty CHECK (api_key_encrypted IS NULL OR TRIM(api_key_encrypted) != ''),
+  
+  api_secret_encrypted TEXT,
+  CONSTRAINT api_secret_not_empty CHECK (api_secret_encrypted IS NULL OR TRIM(api_secret_encrypted) != ''),
+  
+  webhook_url VARCHAR(255),
+  webhook_secret VARCHAR(255),
+  
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  test_mode BOOLEAN NOT NULL DEFAULT false,
+  
+  last_webhook_call TIMESTAMP WITH TIME ZONE,
+  webhook_call_count INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT webhook_call_count_positive CHECK (webhook_call_count >= 0),
+  
+  last_error TEXT,
+  error_count INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT error_count_positive CHECK (error_count >= 0),
+  
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_by UUID,
+  updated_by UUID
+);
+
+COMMENT ON TABLE organizations_integrations IS
+'Third-party API integrations for insurance companies, ERP systems, and other platforms.
+Stores encrypted API credentials and webhook configurations.
+Supports V1.5+ roadmap: Insurance API, ERP integrations (Procore, Autodesk), CRM systems, etc.
+Credentials encrypted at rest (decrypted only during actual API calls).
+Circuit breaker pattern: disable integration after 10 consecutive errors to prevent flooding.';
+
+COMMENT ON COLUMN organizations_integrations.id IS
+'Primary key - UUID auto-generated.';
+
+COMMENT ON COLUMN organizations_integrations.organization_id IS
+'Foreign key to organizations (added in migration 002).
+Each integration belongs to exactly one organization.
+CASCADE on delete: if organization deleted, all its integrations deleted.';
+
+COMMENT ON COLUMN organizations_integrations.integration_type IS
+'Type of integration. Examples: "insurance_api", "procore", "autodesk", "crm_salesforce", "slack".
+Used to route webhook calls to appropriate handlers in application.
+Validates against whitelisted integration types in business logic.';
+
+COMMENT ON COLUMN organizations_integrations.integration_name IS
+'Human-readable name for this specific integration instance.
+Examples: "Acme Insurance Portal", "Procore Main Site", "Autodesk Project XYZ".
+For admin UI display and identification in logs.';
+
+COMMENT ON COLUMN organizations_integrations.api_key_encrypted IS
+'API key for authentication (ENCRYPTED). Never stored in plaintext in database.
+Decryption key stored separately in AWS Secrets Manager or HashiCorp Vault.
+Example plaintext: "sk_live_51234567890abcdef" or "Bearer token...".
+Decrypted only when making outbound API calls to third-party.
+Example encrypted: "ENCRYPTED[aes256:abc123def456...]"';
+
+COMMENT ON COLUMN organizations_integrations.api_secret_encrypted IS
+'API secret or password (ENCRYPTED). Used for HMAC signatures or basic auth.
+Examples: OAuth client secret, webhook signing key, database password.
+Decrypted only when making API calls or validating incoming webhooks.';
+
+COMMENT ON COLUMN organizations_integrations.webhook_url IS
+'URL where EquipChain sends webhook notifications to third-party.
+Examples: "https://acme-insurance.com/equipchain/webhook", "https://procore.api.com/webhooks/maintenance".
+Called when maintenance_records status changes (submitted, approved, confirmed, rejected).
+Optional: some integrations may not support webhooks.';
+
+COMMENT ON COLUMN organizations_integrations.webhook_secret IS
+'Secret key for webhook signature verification (HMAC-SHA256).
+Prevents unauthorized calls from spoofing maintenance updates.
+Included in Authorization header or X-Webhook-Signature header for security.';
+
+COMMENT ON COLUMN organizations_integrations.is_active IS
+'true = integration is enabled and will receive webhook calls and API calls.
+false = integration disabled (errors won''t prevent system operation, graceful degradation).
+Allows admins to temporarily disable problematic integrations without data loss.';
+
+COMMENT ON COLUMN organizations_integrations.test_mode IS
+'false = production mode (real data sent to third-party system).
+true = test/sandbox mode (use sandbox endpoints, or don''t send data to production).
+Allows testing integrations without affecting real data in third-party systems.';
+
+COMMENT ON COLUMN organizations_integrations.last_webhook_call IS
+'Timestamp of most recent webhook call (success or failure).
+Used for "integration health check": is_active AND last_webhook_call > NOW() - INTERVAL ''7 days''.
+NULL if webhook never called (new integration).';
+
+COMMENT ON COLUMN organizations_integrations.webhook_call_count IS
+'Total number of webhook calls sent (success + failure combined).
+Used for tracking integration usage volume for billing and analytics.
+Incremented every time webhook is called, regardless of success.';
+
+COMMENT ON COLUMN organizations_integrations.last_error IS
+'Error message from last failed webhook call or API request.
+Examples: "Connection timeout", "HTTP 403 Forbidden", "Invalid API key", "Rate limited by API".
+Helps admins debug integration issues without checking logs.';
+
+COMMENT ON COLUMN organizations_integrations.error_count IS
+'Consecutive error count. Reset to 0 on successful API call/webhook.
+Used for circuit breaker pattern: disable integration after N consecutive errors.
+Prevents system from flooding third-party with failed requests.';
+
+COMMENT ON COLUMN organizations_integrations.created_by IS
+'User ID of admin who created this integration (set via API).
+Tracks who configured the integration for audit trail.';
+
+COMMENT ON COLUMN organizations_integrations.updated_by IS
+'User ID of admin who last modified this integration (credentials, webhook URL, etc).
+Auto-updated by trigger_organizations_integrations_update_at.';
+
+-- ================================================================================
+-- Create email_queue 
+-- Description: Reliable async email queue for notifications (approvals, confirmations, alerts). 
+-- Implements retry logic for failed sends. Cron job processes queue every 5 minutes with exponential backoff.
+-- ================================================================================
+
+CREATE TABLE email_queue (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL,
+  
+  recipient_email VARCHAR(255) NOT NULL,
+  CONSTRAINT recipient_email_valid CHECK (
+    recipient_email ~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}$'
+  ),
+  
+  -- Email type (determines template)
+  email_type VARCHAR(100) NOT NULL,
+  CONSTRAINT email_type_valid CHECK (email_type IN (
+    'supervisor_approval_needed',
+    'approval_receipt',
+    'maintenance_confirmed',
+    'email_verification',
+    'password_reset',
+    'overdue_maintenance_alert',
+    'license_expiration_alert',
+    'maintenance_rejected',
+    'technician_assigned'
+  )),
+  
+  -- Template data (rendered into email body by email service)
+  template_data JSONB,
+  CONSTRAINT template_data_is_object CHECK (
+    template_data IS NULL OR jsonb_typeof(template_data) = 'object'
+  ),
+  
+  status VARCHAR(50) NOT NULL DEFAULT 'pending',
+  CONSTRAINT email_status_valid CHECK (status IN ('pending', 'sent', 'failed', 'bounced')),
+  
+  retry_count SMALLINT NOT NULL DEFAULT 0,
+  CONSTRAINT retry_count_positive CHECK (retry_count >= 0),
+  
+  last_attempt_at TIMESTAMP WITH TIME ZONE,
+  error_message TEXT,
+  
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  sent_at TIMESTAMP WITH TIME ZONE
+);
+
+COMMENT ON TABLE email_queue IS
+'Async email queue for reliable notification delivery with automatic retry logic.
+Supports multiple email types: approvals, confirmations, alerts, verifications.
+Implements retry logic: max 3 retries with exponential backoff (1min, 5min, 15min).
+Cron job processes queue every 5 minutes.
+Prevents email service outages from blocking maintenance workflows.';
+
+COMMENT ON COLUMN email_queue.id IS
+'Primary key - UUID auto-generated.';
+
+COMMENT ON COLUMN email_queue.organization_id IS
+'Foreign key to organizations (added in migration 002).
+Multi-tenant isolation: admins only see emails for their organization.
+CASCADE on delete: if organization deleted, queued emails deleted.';
+
+COMMENT ON COLUMN email_queue.recipient_email IS
+'Email address to send to. Example: "supervisor@acme.local".
+Validated against email regex before insertion.
+Used as primary recipient; no CC/BCC in this design (kept simple).';
+
+COMMENT ON COLUMN email_queue.email_type IS
+'Type of email determines template used and content. Examples:
+- supervisor_approval_needed: "Maintenance XYZ waiting for your approval"
+- approval_receipt: "Your approval was received, thank you"
+- maintenance_confirmed: "Maintenance XYZ confirmed on blockchain"
+- maintenance_rejected: "Your maintenance was rejected, see comments"
+- email_verification: Account activation email
+- password_reset: Password recovery link
+- overdue_maintenance_alert: "Equipment XYZ overdue for maintenance"
+- license_expiration_alert: "Your license expires in 30 days"
+- technician_assigned: "You have been assigned maintenance XYZ"';
+
+COMMENT ON COLUMN email_queue.template_data IS
+'JSON object containing template variables, rendered into email body.
+Example: {"maintenance_id": "abc123", "equipment_name": "Excavator #7", "technician_name": "John"}.
+Used in email template: "{{ equipment_name }} requires maintenance by {{ technician_name }}".
+Allows dynamic personalized emails from static templates.';
+
+COMMENT ON COLUMN email_queue.status IS
+'Email delivery status. Progression: pending → sent (or pending → failed/bounced).
+- pending: Awaiting delivery (cron job will process)
+- sent: Successfully delivered (sent_at is populated)
+- failed: Delivery failed after max retries (error_message populated)
+- bounced: Email address invalid or permanently undeliverable (don''t retry)';
+
+COMMENT ON COLUMN email_queue.retry_count IS
+'Number of delivery attempts. Max 3 retries before status = ''failed''.
+Cron job increments on each attempt.
+After 3 retries: update status = ''failed'', give up.';
+
+COMMENT ON COLUMN email_queue.last_attempt_at IS
+'Timestamp of most recent delivery attempt (success or failure).
+Used for exponential backoff timing: 1min after 1st fail, 5min after 2nd fail, 15min after 3rd fail.
+NULL if email never attempted.';
+
+COMMENT ON COLUMN email_queue.error_message IS
+'Error from last failed delivery attempt.
+Examples: "Connection timeout", "Invalid email address", "Rate limited by SendGrid".
+Helps admins debug email delivery issues without checking logs.
+NULL if status = ''sent'' or ''pending''.';
+
+COMMENT ON COLUMN email_queue.sent_at IS
+'Timestamp when email was successfully delivered.
+NULL for pending/failed/bounced emails.
+Used for "show me all emails sent in past 30 days" queries (audit trail).';
+
+-- ================================================================================
 -- Create Indexes on All Tables
 -- ================================================================================
 
@@ -1318,6 +1654,73 @@ COMMENT ON INDEX idx_maintenance_approval_audit_created_at IS
 CREATE INDEX idx_maintenance_approval_audit_maintenance_record_created_at ON maintenance_approval_audit(maintenance_record_id, created_at);
 COMMENT ON INDEX idx_maintenance_approval_audit_maintenance_record_created_at IS
 'Optimized query: get all approvals for a maintenance record in chronological order.';
+
+-- equipment_maintenance_schedule Indexes
+CREATE INDEX idx_equipment_maintenance_schedule_equipment_id ON equipment_maintenance_schedule(equipment_id);
+COMMENT ON INDEX idx_equipment_maintenance_schedule_equipment_id IS
+'Find all maintenance schedules for a specific equipment.
+Query: "What maintenance is due for excavator #XYZ?"';
+
+CREATE INDEX idx_equipment_maintenance_schedule_organization_id ON equipment_maintenance_schedule(organization_id);
+COMMENT ON INDEX idx_equipment_maintenance_schedule_organization_id IS
+'Multi-tenant isolation: List all schedules for organization.
+Query: "Show all maintenance schedules for acme_corp"';
+
+CREATE INDEX idx_equipment_maintenance_schedule_next_due_date ON equipment_maintenance_schedule(next_due_date);
+COMMENT ON INDEX idx_equipment_maintenance_schedule_next_due_date IS
+'CRITICAL for dashboard performance. Find equipment due for maintenance.
+Query: "What equipment needs maintenance today or is overdue?"
+Query: "What equipment needs maintenance in next 7 days?" (for scheduling)';
+
+CREATE INDEX idx_equipment_maintenance_schedule_maintenance_type_id ON equipment_maintenance_schedule(maintenance_type_id);
+COMMENT ON INDEX idx_equipment_maintenance_schedule_maintenance_type_id IS
+'Find all equipment requiring specific maintenance type.
+Query: "Find all equipment needing hydraulic system inspections"';
+
+-- organizations_integrations Indexes
+CREATE INDEX idx_organizations_integrations_organization_id ON organizations_integrations(organization_id);
+COMMENT ON INDEX idx_organizations_integrations_organization_id IS
+'List all integrations for an organization (admin settings page, integrations dashboard).';
+
+CREATE INDEX idx_organizations_integrations_integration_type ON organizations_integrations(integration_type);
+COMMENT ON INDEX idx_organizations_integrations_integration_type IS
+'Find all integrations of specific type (e.g., all insurance APIs, all Procore instances).';
+
+CREATE INDEX idx_organizations_integrations_is_active ON organizations_integrations(is_active);
+COMMENT ON INDEX idx_organizations_integrations_is_active IS
+'Find all active integrations that should receive webhook calls and API requests.
+Query: "Should we send webhook to this integration?" = is_active = true';
+
+CREATE INDEX idx_organizations_integrations_created_at ON organizations_integrations(created_at);
+COMMENT ON INDEX idx_organizations_integrations_created_at IS
+'Time-based queries for integration auditing and retention policies.';
+
+-- email_queue Indexes
+CREATE INDEX idx_email_queue_organization_id ON email_queue(organization_id);
+COMMENT ON INDEX idx_email_queue_organization_id IS
+'Multi-tenant isolation: List all emails for organization.';
+
+CREATE INDEX idx_email_queue_status ON email_queue(status);
+COMMENT ON INDEX idx_email_queue_status IS
+'Cron job critical query: Find all pending emails to process.
+Query: WHERE status = ''pending'' AND (last_attempt_at IS NULL OR ready_for_retry)';
+
+CREATE INDEX idx_email_queue_email_type ON email_queue(email_type);
+COMMENT ON INDEX idx_email_queue_email_type IS
+'Find all emails of specific type (e.g., all ''approval_needed'' emails).';
+
+CREATE INDEX idx_email_queue_created_at ON email_queue(created_at);
+COMMENT ON INDEX idx_email_queue_created_at IS
+'Time-range queries for reporting: "Show all emails created in past 30 days".';
+
+CREATE INDEX idx_email_queue_recipient_email ON email_queue(recipient_email);
+COMMENT ON INDEX idx_email_queue_recipient_email IS
+'Find all emails sent to a specific address (for unsubscribe, bounce handling).';
+
+CREATE INDEX idx_email_queue_status_created_at ON email_queue(status, created_at);
+COMMENT ON INDEX idx_email_queue_status_created_at IS
+'Optimized cron job query: Find pending emails ordered by age.
+Query: WHERE status = ''pending'' ORDER BY created_at ASC LIMIT 100';
 
 -- ================================================================================
 -- Create Trigger Function for Updated_At Timestamp (Users/Organizations)
@@ -1672,6 +2075,133 @@ Returns true if next sequence is valid, false if trying to skip approval step.
 - Sequence 1: First approval (from draft → submitted)
 - Sequence 2: Second approval (from first approval → ready for blockchain)
 - Sequence 3: Third approval (optional, for triple-sig critical work)';
+
+
+-- ================================================================================
+-- Create Triggers for equipment_maintenance_schedule
+-- Description: defines update_at, is_maintenance_overdue, 
+-- and update_maintenance_schedule_after_completion functions and triggers
+-- ================================================================================
+
+CREATE TRIGGER trigger_equipment_maintenance_schedule_update_at
+BEFORE UPDATE ON equipment_maintenance_schedule
+FOR EACH ROW
+EXECUTE FUNCTION update_user_timestamp();
+
+COMMENT ON TRIGGER trigger_equipment_maintenance_schedule_update_at ON equipment_maintenance_schedule IS
+'Automatically updates equipment_maintenance_schedule.updated_at on row modification.';
+
+CREATE OR REPLACE FUNCTION is_maintenance_overdue(
+  p_schedule_id UUID
+)
+RETURNS BOOLEAN
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT next_due_date < CURRENT_DATE
+  FROM equipment_maintenance_schedule
+  WHERE id = p_schedule_id;
+$$;
+
+COMMENT ON FUNCTION is_maintenance_overdue(UUID) IS
+'Check if maintenance schedule is overdue.
+Returns true if next_due_date is in the past.
+Used for dashboard alert highlighting and cron job alert generation.
+Example: WHERE is_maintenance_overdue(schedule_id)';
+
+CREATE OR REPLACE FUNCTION get_equipment_due_for_maintenance(
+  p_org_id UUID,
+  p_days_until_due INT DEFAULT 30,
+  OUT equipment_id UUID,
+  OUT equipment_name VARCHAR(255),
+  OUT maintenance_type VARCHAR(100),
+  OUT days_until_due INT,
+  OUT is_overdue BOOLEAN
+)
+RETURNS SETOF record
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT 
+    ems.equipment_id,
+    CONCAT(e.make, ' ', e.model) as equipment_name,
+    mtl.label as maintenance_type,
+    (ems.next_due_date - CURRENT_DATE)::INT as days_until_due,
+    (ems.next_due_date < CURRENT_DATE) as is_overdue
+  FROM equipment_maintenance_schedule ems
+  JOIN equipment e ON ems.equipment_id = e.id
+  JOIN maintenance_type_lookup mtl ON ems.maintenance_type_id = mtl.id
+  WHERE 
+    ems.organization_id = p_org_id
+    AND ems.next_due_date BETWEEN CURRENT_DATE - INTERVAL '1 day' 
+    AND CURRENT_DATE + (p_days_until_due || ' days')::INTERVAL
+  ORDER BY ems.next_due_date ASC;
+$$;
+
+COMMENT ON FUNCTION get_equipment_due_for_maintenance(UUID, INT) IS
+'Get all equipment needing maintenance in next N days (default 30).
+Returns both overdue (negative days_until_due) and upcoming maintenance.
+Used for dashboard widgets, email alerts, and scheduling views.
+Results ordered by next_due_date (oldest/most urgent first).
+Example: SELECT * FROM get_equipment_due_for_maintenance(org_id, 30)';
+
+CREATE OR REPLACE FUNCTION update_maintenance_schedule_after_completion(
+  p_maintenance_record_id UUID
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_equipment_id UUID;
+  v_maintenance_type_id SMALLINT;
+  v_schedule_id UUID;
+BEGIN
+  -- Get equipment and maintenance type from the completed record
+  SELECT equipment_id, maintenance_type_id 
+  INTO v_equipment_id, v_maintenance_type_id
+  FROM maintenance_records 
+  WHERE id = p_maintenance_record_id;
+
+  -- Find the schedule
+  SELECT id INTO v_schedule_id
+  FROM equipment_maintenance_schedule
+  WHERE equipment_id = v_equipment_id 
+    AND maintenance_type_id = v_maintenance_type_id
+  LIMIT 1;
+
+  -- Update schedule with new dates
+  UPDATE equipment_maintenance_schedule
+  SET 
+    last_maintenance_date = CURRENT_DATE,
+    next_due_date = CURRENT_DATE + (scheduled_frequency_days || ' days')::INTERVAL,
+    overdue_alert_sent_at = NULL,
+    due_soon_alert_sent_at = NULL,
+    updated_at = CURRENT_TIMESTAMP
+  WHERE id = v_schedule_id;
+END;
+$$;
+
+COMMENT ON FUNCTION update_maintenance_schedule_after_completion(UUID) IS
+'Called after maintenance_records is confirmed on blockchain.
+Updates last_maintenance_date and next_due_date in schedule.
+Resets alert timestamps (overdue_alert_sent_at, due_soon_alert_sent_at) so new alerts can be generated.
+Should be called from maintenance confirmation flow after blockchain records confirmation.
+Example: CALL update_maintenance_schedule_after_completion(maintenance_id) after solana_signature populated.';
+
+-- ================================================================================
+-- Create Triggers for organizations_integrations
+-- Description: defines update_at triggers
+-- ================================================================================
+
+CREATE TRIGGER trigger_organizations_integrations_update_at
+BEFORE UPDATE ON organizations_integrations
+FOR EACH ROW
+EXECUTE FUNCTION update_user_timestamp();
+
+COMMENT ON TRIGGER trigger_organizations_integrations_update_at ON organizations_integrations IS
+'Automatically updates organizations_integrations.updated_at on row modification.';
 
 -- ================================================================================
 -- Create Triggers for All Lookup Tables
