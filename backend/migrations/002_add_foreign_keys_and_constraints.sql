@@ -170,7 +170,7 @@ COMMENT ON CONSTRAINT fk_equipment_status_lookup_updated_by ON equipment_status_
 Auto-updated by trigger. On delete: SET NULL.';
 
 -- ================================================================================
--- Foreign Key Constraints for equipment Table
+-- Constraints for equipment Table
 -- ================================================================================
 
 ALTER TABLE equipment
@@ -196,3 +196,78 @@ ALTER TABLE equipment
 ALTER TABLE equipment
   ADD CONSTRAINT equipment_serial_number_unique_per_org
     UNIQUE(organization_id, serial_number);
+
+-- ================================================================================
+-- Constraints for maintenance_records
+--================================================================================
+
+ALTER TABLE maintenance_records
+  ADD CONSTRAINT fk_maintenance_records_organization_id
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE maintenance_records
+  ADD CONSTRAINT fk_maintenance_records_equipment_id
+    FOREIGN KEY (equipment_id) REFERENCES equipment(id) ON DELETE RESTRICT;
+
+ALTER TABLE maintenance_records
+  ADD CONSTRAINT fk_maintenance_records_type_id
+    FOREIGN KEY (maintenance_type_id) REFERENCES maintenance_type_lookup(id) ON DELETE RESTRICT;
+
+ALTER TABLE maintenance_records
+  ADD CONSTRAINT fk_maintenance_records_status_id
+    FOREIGN KEY (status_id) REFERENCES maintenance_status_lookup(id) ON DELETE RESTRICT;
+
+ALTER TABLE maintenance_records
+  ADD CONSTRAINT fk_maintenance_records_technician_id
+    FOREIGN KEY (technician_id) REFERENCES users(id) ON DELETE RESTRICT;
+
+ALTER TABLE maintenance_records
+  ADD CONSTRAINT fk_maintenance_records_supervisor_id
+    FOREIGN KEY (supervisor_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE maintenance_records
+  ADD CONSTRAINT fk_maintenance_records_inspector_id
+    FOREIGN KEY (inspector_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE maintenance_records
+  ADD CONSTRAINT fk_maintenance_records_created_by
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE maintenance_records
+  ADD CONSTRAINT fk_maintenance_records_updated_by
+    FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- ================================================================================
+-- Constraints for maintenance_photos
+-- ================================================================================
+
+ALTER TABLE maintenance_photos
+  ADD CONSTRAINT unique_sequence_per_maintenance UNIQUE(maintenance_record_id, sequence_number);
+
+ALTER TABLE maintenance_photos
+  ADD CONSTRAINT fk_maintenance_photos_maintenance_record_id
+    FOREIGN KEY (maintenance_record_id) REFERENCES maintenance_records(id) ON DELETE CASCADE;
+
+ALTER TABLE maintenance_photos
+  ADD CONSTRAINT fk_maintenance_photos_organization_id
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE maintenance_photos
+  ADD CONSTRAINT fk_maintenance_photos_created_by
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE maintenance_photos
+  ADD CONSTRAINT unique_ipfs_hash
+    UNIQUE(ipfs_hash);
+
+-- ================================================================================
+-- Constraints for blockchain_transactions
+-- ================================================================================
+
+ALTER TABLE blockchain_transactions
+  ADD CONSTRAINT fk_blockchain_transactions_maintenance_record_id
+    FOREIGN KEY (maintenance_record_id) REFERENCES maintenance_records(id) ON DELETE RESTRICT;
+
+ALTER TABLE blockchain_transactions
+  ADD CONSTRAINT fk_blockchain_transactions_organization_id
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;

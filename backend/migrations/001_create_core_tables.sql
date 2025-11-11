@@ -511,7 +511,7 @@ CREATE TABLE equipment (
   created_by UUID,
   updated_by UUID,
 
-  CONSTRAINT serial_number_not_empty CHECK (TRIM(serical_number) != ''),
+  CONSTRAINT serial_number_not_empty CHECK (TRIM(serial_number) != ''),
   CONSTRAINT make_not_empty CHECK (TRIM(make) != ''),
   CONSTRAINT model_not_empty CHECK (TRIM(model) != '')
 );
@@ -558,6 +558,267 @@ COMMENT ON COLUMN equipment.created_by IS
 
 COMMENT ON COLUMN equipment.updated_by IS
 'User ID of who last modified this equipment (auto-updated by trigger).';
+
+-- ================================================================================
+-- Create maintenance_records Table
+-- Description: 
+-- ================================================================================
+
+  CREATE TABLE maintenance_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    equipment_id UUID NOT NULL,
+    maintenance_type_id SMALLINT NOT NULL,
+    status_id SMALLINT NOT NULL,
+
+    technician_id UUID NOT NULL,
+    supervisor_id UUID,
+    inspector_id UUID,
+
+    notes TEXT,
+
+    gps_latitude DECIMAL(10, 8),
+    gps_longitude DECIMAL(11, 8),
+
+    solana_signature VARCHAR(255),
+
+    submitted_at TIMESTAMP WITH TIME ZONE,
+    approved_at TIMESTAMP WITH TIME ZONE,
+    confirmed_at TIMESTAMP WITH TIME ZONE,
+    rejected_at TIMESTAMP WITH TIME ZONE,
+
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by UUID,
+    updated_by UUID,
+
+    CONSTRAINT gps_latitude_valid CHECK (
+      gps_latitude IS NULL OR (gps_latitude >= -90 AND gps_latitude <= 90)
+    ),
+    CONSTRAINT gps_longitude_valid CHECK (
+      gps_longitude IS NULL OR (gps_longitude >= -180 and gps_longitude <= 180)
+    )
+  );
+
+COMMENT ON TABLE maintenance_records IS
+'Maintenance records for equipment. Tracks workflow from creation through blockchain confirmation.
+Supports multi-signature approval workflow (1-3 signatures: technician, supervisor, inspector).
+Immutable once confirmed on blockchain.';
+
+COMMENT ON COLUMN maintenance_records.id IS
+'Primary key - UUID for security.';
+
+COMMENT ON COLUMN maintenance_records.organization_id IS
+'Foreign key to organizations. Multi-tenant isolation.';
+
+COMMENT ON COLUMN maintenance_records.equipment_id IS
+'Foreign key to equipment. RESTRICT on delete (cannot delete equipment with maintenance records).';
+
+COMMENT ON COLUMN maintenance_records.maintenance_type_id IS
+'Foreign key to maintenance_type_lookup.
+Categorizes work: preventive, corrective, emergency, inspection.';
+
+COMMENT ON COLUMN maintenance_records.status_id IS
+'Foreign key to maintenance_status_lookup.
+Workflow: draft → submitted → approved → confirmed (or rejected).';
+
+COMMENT ON COLUMN maintenance_records.technician_id IS
+'Foreign key to users. Who performed the work?
+RESTRICT on delete (cannot delete technician with maintenance records).';
+
+COMMENT ON COLUMN maintenance_records.supervisor_id IS
+'Foreign key to users. Optional supervisor for multi-sig approval.
+SET NULL on delete.';
+
+COMMENT ON COLUMN maintenance_records.inspector_id IS
+'Foreign key to users. Optional third signature for critical work.
+SET NULL on delete.';
+
+COMMENT ON COLUMN maintenance_records.notes IS
+'Work description. Example: "Changed hydraulic fluid, replaced filter, tested pressure."
+May be NULL initially, populated before submission.';
+
+COMMENT ON COLUMN maintenance_records.gps_latitude IS
+'GPS latitude for proof-of-work. Decimal with 8 places (0.00000001 degree precision).
+Range: -90 to 90. NULL if location not required.';
+
+COMMENT ON COLUMN maintenance_records.gps_longitude IS
+'GPS longitude for proof-of-work. Decimal with 8 places (0.00000001 degree precision).
+Range: -180 to 180. NULL if location not required.';
+
+COMMENT ON COLUMN maintenance_records.solana_signature IS
+'Solana blockchain transaction signature. Globally unique proof of blockchain confirmation.
+Example: "5Kf7x3B9p2NnqsQ7vM8dZaRlQe4jFhK2...".
+NULL until maintenance is confirmed on blockchain.';
+
+COMMENT ON COLUMN maintenance_records.submitted_at IS
+'Timestamp when technician submitted for approval. Workflow trigger.';
+
+COMMENT ON COLUMN maintenance_records.approved_at IS
+'Timestamp when supervisor approved. Workflow trigger.';
+
+COMMENT ON COLUMN maintenance_records.confirmed_at IS
+'Timestamp when blockchain confirmation received. Final workflow state.';
+
+COMMENT ON COLUMN maintenance_records.rejected_at IS
+'Timestamp when supervisor rejected. Allows technician to resubmit from draft.';
+
+-- ================================================================================
+-- Create maintenance_photos Table
+-- Description: 
+-- ================================================================================
+
+CREATE TABLE maintenance_photos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  maintenance_record_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
+
+  -- Photo sequence (1=before, 2=during, 3=after)
+  sequence_number SMALLINT NOT NULL,
+  CONSTRAINT photo_sequence_valid CHECK (sequence_number IN (1, 2, 3)), 
+  
+  ipfs_hash VARCHAR(100) NOT NULL,
+  ipfs_url VARCHAR(255),
+
+  s3_backup_url VARCHAR(255),
+
+  file_size_bytes INTEGER,
+  mime_type VARCHAR(50), -- "image/jpeg", "image/png"
+
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_by UUID,
+
+  CONSTRAINT ipfs_hash_not_empty CHECK (TRIM(ipfs_hash) != ''),
+  CONSTRAINT file_size_positive CHECK (file_size_bytes IS NULL OR file_size_bytes > 0)
+);
+
+COMMENT ON TABLE maintenance_photos IS
+'Photo evidence for maintenance records. Stores 3 photos per maintenance event:
+1=before, 2=during, 3=after. IPFS for decentralized storage, S3 for backup redundancy.
+Immutable once created.';
+
+COMMENT ON COLUMN maintenance_photos.id IS
+'Primary key - UUID.';
+
+COMMENT ON COLUMN maintenance_photos.maintenance_record_id IS
+'Foreign key to maintenance_records. CASCADE on delete.';
+
+COMMENT ON COLUMN maintenance_photos.organization_id IS
+'Foreign key to organizations. Denormalized for multi-tenant queries.';
+
+COMMENT ON COLUMN maintenance_photos.sequence_number IS
+'Photo sequence: 1=before, 2=during, 3=after.
+Constraint ensures only these values (CHECK constraint).';
+
+COMMENT ON COLUMN maintenance_photos.ipfs_hash IS
+'IPFS content hash. Example: "QmX7f3MN2pK9vR4tQsDxC5nL1jYe8bZqH6wFgUoPv3Xy".
+Globally unique identifier for immutable content.';
+
+COMMENT ON COLUMN maintenance_photos.ipfs_url IS
+'Reconstructed IPFS URL. Example: "https://ipfs.io/ipfs/QmX7f3MN2...".
+Can be regenerated from ipfs_hash but stored for convenience.';
+
+COMMENT ON COLUMN maintenance_photos.s3_backup_url IS
+'AWS S3 URL for backup storage. Example: "https://s3.amazonaws.com/equipchain/.../photo.jpg".
+Redundancy in case IPFS becomes unavailable.';
+
+COMMENT ON COLUMN maintenance_photos.file_size_bytes IS
+'Size of photo file in bytes. Used for storage quota tracking and SLA monitoring.';
+
+COMMENT ON COLUMN maintenance_photos.mime_type IS
+'MIME type of photo. Example: "image/jpeg", "image/png".
+Helps client validate before storing.';
+
+COMMENT ON COLUMN maintenance_photos.created_by IS
+'User ID of who uploaded. For audit trail.';
+
+-- ================================================================================
+-- Create blockchain_transactions Table
+-- Description: 
+-- ================================================================================
+
+CREATE TABLE blockchain_transactions(
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  maintenance_record_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
+
+  transaction_signature VARCHAR(255) NOT NULL,
+  block_number BIGINT,
+  block_timestamp INTEGER, -- Unix timestamp from blockchain
+
+  confirmation_status VARCHAR(50) NOT NULL DEFAULT 'pending',
+  CONSTRAINT confirmation_status_valid CHECK (
+    confirmation_status IN ('pending', 'confirmed', 'failed', 'expired')
+  ),
+
+  transaction_fee_lamports BIGINT,
+  CONSTRAINT fee_positive CHECK (transaction_fee_lamports IS NULL OR transaction_fee_lamports > 0),
+
+  solana_rpc_response JSONB,
+
+  retry_count SMALLINT NOT NULL DEFAULT 0,
+  CONSTRAINT retry_count_positive CHECK (retry_count >= 0),
+
+  last_retry_at TIMESTAMP WITH TIME ZONE,
+  error_message TEXT,
+
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  confirmed_at TIMESTAMP WITH TIME ZONE,
+
+  solana_cluster VARCHAR(50) DEFAULT 'mainnet-beta'
+ );
+
+COMMENT ON TABLE blockchain_transactions IS
+'Tracks Solana blockchain transactions for maintenance records.
+One transaction per maintenance confirmation. Stores transaction status,
+block information, fee data, and retry metadata for debugging and cost tracking.';
+
+COMMENT ON COLUMN blockchain_transactions.id IS
+'Primary key - UUID.';
+
+COMMENT ON COLUMN blockchain_transactions.maintenance_record_id IS
+'Foreign key to maintenance_records. RESTRICT on delete.';
+
+COMMENT ON COLUMN blockchain_transactions.organization_id IS
+'Foreign key to organizations. Cost tracking per organization.';
+
+COMMENT ON COLUMN blockchain_transactions.transaction_signature IS
+'Solana transaction signature (base58 encoded). Globally unique.
+Example: "5Kf7x3B9p2NnqsQ7vM8dZaRlQe4jFhK2GkJxNoPq7RsQeT9vL1wM".
+This is the immutable proof on blockchain.';
+
+COMMENT ON COLUMN blockchain_transactions.block_number IS
+'Solana block number where transaction was confirmed.
+NULL for pending transactions, populated after confirmation.';
+
+COMMENT ON COLUMN blockchain_transactions.block_timestamp IS
+'Unix timestamp from blockchain (seconds since epoch).
+When blockchain confirmed the transaction.';
+
+COMMENT ON COLUMN blockchain_transactions.confirmation_status IS
+'Transaction status: pending → confirmed (or pending → failed → expired).
+Controls retry logic and maintenance record workflow state.';
+
+COMMENT ON COLUMN blockchain_transactions.transaction_fee_lamports IS
+'Fee paid in lamports (1 SOL = 1,000,000,000 lamports).
+Used for cost tracking and monthly billing calculations.';
+
+COMMENT ON COLUMN blockchain_transactions.solana_rpc_response IS
+'Full Solana RPC API response as JSONB. For debugging failed/pending transactions.
+Stores error details, logs, and metadata from RPC.';
+
+COMMENT ON COLUMN blockchain_transactions.retry_count IS
+'Number of retry attempts. Max 3 retries before status = ''failed''.';
+
+COMMENT ON COLUMN blockchain_transactions.last_retry_at IS
+'Timestamp of last retry attempt. Used for exponential backoff calculation.';
+
+COMMENT ON COLUMN blockchain_transactions.error_message IS
+'Error description from last attempt. Example: "Insufficient funds", "Network timeout".';
+
+COMMENT ON COLUMN blockchain_transactions.solana_cluster IS
+'Which Solana cluster: mainnet-beta, devnet, testnet.
+Defaults to mainnet-beta for production.';
 
 -- ================================================================================
 -- Create Indexes on All Tables
@@ -651,6 +912,83 @@ CREATE INDEX idx_equipment_created_at ON equipment(created_at);
 COMMENT ON INDEX idx_equipment_created_at IS
 'Time-based queries for reporting.';
 
+CREATE INDEX idx_maintenance_records_organization_id ON maintenance_records(organization_id);
+COMMENT ON INDEX idx_maintenance_records_organization_id IS
+'Multi-tenant isolation: List all maintenance for organization.';
+
+CREATE INDEX idx_maintenance_records_equipment_id ON maintenance_records(equipment_id);
+COMMENT ON INDEX idx_maintenance_records_equipment_id IS
+'Equipment history: List all maintenance for specific equipment.';
+
+CREATE INDEX idx_maintenance_records_status_id ON maintenance_records(status_id);
+COMMENT ON INDEX idx_maintenance_records_status_id IS
+'Filter maintenance in specific workflow state (e.g., pending approval).';
+
+CREATE INDEX idx_maintenance_records_technician_id ON maintenance_records(technician_id);
+COMMENT ON INDEX idx_maintenance_records_technician_id IS
+'List all maintenance performed by specific technician.';
+
+CREATE INDEX idx_maintenance_records_supervisor_id ON maintenance_records(supervisor_id);
+COMMENT ON INDEX idx_maintenance_records_supervisor_id IS
+'List all maintenance approved by specific supervisor.';
+
+CREATE INDEX idx_maintenance_records_solana_signature ON maintenance_records(solana_signature);
+COMMENT ON INDEX idx_maintenance_records_solana_signature IS
+'Blockchain verification: Fast lookup by Solana signature.';
+
+CREATE INDEX idx_maintenance_records_created_at ON maintenance_records(created_at);
+COMMENT ON INDEX idx_maintenance_records_created_at IS
+'Time-based queries for reporting and dashboards.';
+
+CREATE INDEX idx_maintenance_records_confirmed_at ON maintenance_records(confirmed_at);
+COMMENT ON INDEX idx_maintenance_records_confirmed_at IS
+'Query confirmed maintenance in date range (fast confirmation lookups).';
+
+CREATE INDEX idx_maintenance_photos_maintenance_record_id ON maintenance_photos(maintenance_record_id);
+COMMENT ON INDEX idx_maintenance_photos_maintenance_record_id IS
+'Retrieve all photos for maintenance record (typically 3 photos per record).';
+
+CREATE INDEX idx_maintenance_photos_ipfs_hash ON maintenance_photos(ipfs_hash);
+COMMENT ON INDEX idx_maintenance_photos_ipfs_hash IS
+'Fast lookup by IPFS hash for verification and deduplication.';
+
+CREATE INDEX idx_maintenance_photos_organization_id ON maintenance_photos(organization_id);
+COMMENT ON INDEX idx_maintenance_photos_organization_id IS
+'Multi-tenant storage quota tracking.';
+
+CREATE INDEX idx_maintenance_photos_created_at ON maintenance_photos(created_at);
+COMMENT ON INDEX idx_maintenance_photos_created_at IS
+'Time-based queries for storage analytics.';
+
+
+CREATE INDEX idx_blockchain_transactions_maintenance_record_id ON blockchain_transactions(maintenance_record_id);
+COMMENT ON INDEX idx_blockchain_transactions_maintenance_record_id IS
+'Fast lookup: Get blockchain info for maintenance record.';
+
+CREATE INDEX idx_blockchain_transactions_transaction_signature ON blockchain_transactions(transaction_signature);
+COMMENT ON INDEX idx_blockchain_transactions_transaction_signature IS
+'Blockchain verification: Look up transaction by signature.';
+
+CREATE INDEX idx_blockchain_transactions_confirmation_status ON blockchain_transactions(confirmation_status);
+COMMENT ON INDEX idx_blockchain_transactions_confirmation_status IS
+'Query pending transactions for retry processing and confirmation.';
+
+CREATE INDEX idx_blockchain_transactions_organization_id ON blockchain_transactions(organization_id);
+COMMENT ON INDEX idx_blockchain_transactions_organization_id IS
+'Cost tracking: Sum transaction fees per organization.';
+
+CREATE INDEX idx_blockchain_transactions_created_at ON blockchain_transactions(created_at);
+COMMENT ON INDEX idx_blockchain_transactions_created_at IS
+'Time-based queries for reporting.';
+
+CREATE INDEX idx_blockchain_transactions_block_number ON blockchain_transactions(block_number);
+COMMENT ON INDEX idx_blockchain_transactions_block_number IS
+'Query confirmed transactions by block range (rare but useful).';
+
+CREATE INDEX idx_blockchain_transactions_confirmed_at ON blockchain_transactions(confirmed_at);
+COMMENT ON INDEX idx_blockchain_transactions_confirmed_at IS
+'Query confirmed transactions in date range.';
+
 -- ================================================================================
 -- Create Trigger Function for Updated_At Timestamp (Users/Organizations)
 -- Description: Automatically update updated_at on any modification
@@ -710,7 +1048,7 @@ COMMENT ON TRIGGER trigger_organizations_update_at ON organizations IS
 
 -- ================================================================================
 -- Create Trigers for Equipment, Maintenance Records, Maintenance PHotos, and Blockchain Transactions
--- Description: Apply timestamp update function to equipment, maintenance_records, maintenance_photos, and blockchain_transactions
+-- Description: Apply timestamp update function to equipment and maintenance_records.
 -- ================================================================================
 
 CREATE TRIGGER trigger_equipment_update_at
@@ -720,6 +1058,14 @@ FOR EACH ROW
 
 COMMENT ON TRIGGER trigger_equipment_update_at ON equipment IS 
 'Automatically updates equipment.updated_at timestamp on row modification';
+
+CREATE TRIGGER trigger_maintenance_records_update_at
+BEFORE UPDATE ON maintenance_records
+FOR EACH ROW
+  EXECUTE FUNCTION update_user_timestamp();
+
+COMMENT ON TRIGGER trigger_maintenance_records_update_at ON maintenance_records IS 
+'Automatically updates maintenance_records.updated_at timestamp on row modification';
 
 -- ================================================================================
 -- Create Triggers for All Lookup Tables
