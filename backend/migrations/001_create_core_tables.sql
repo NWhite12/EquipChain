@@ -119,7 +119,7 @@ COMMENT ON COLUMN users.id IS
 'Primary key - UUID for security and distributed systems. Never exposed in URLs.';
 
 COMMENT ON COLUMN users.organization_id IS
-'Foreign key to organizations (added in migration 002). Enforces multi-tenant isolation - users only see their organization''s data.';
+'Foreign key to organizations. Enforces multi-tenant isolation - users only see their organization''s data.';
 
 COMMENT ON COLUMN users.email IS
 'Unique per organization. Used for login and password recovery. Must be verified before account is active.';
@@ -129,7 +129,7 @@ COMMENT ON COLUMN users.password_hash IS
 Hash includes embedded salt. Compare using constant-time comparison function.';
 
 COMMENT ON COLUMN users.role_id IS
-'Foreign key to role_lookup (added in migration 002). Determines permissions (admin, manager, technician, supervisor, viewer).';
+'Foreign key to role_lookup. Determines permissions (admin, manager, technician, supervisor, viewer).';
 
 COMMENT ON COLUMN users.email_verified IS
 'true=user clicked verification link, false=awaiting email verification.
@@ -175,10 +175,10 @@ COMMENT ON COLUMN users.status IS
 - deleted: Soft delete - record kept for audit, user cannot login';
 
 COMMENT ON COLUMN users.created_by IS
-'User ID of who created this account (foreign key added in migration 002). May be NULL for self-registered accounts.';
+'User ID of who created this account. May be NULL for self-registered accounts.';
 
 COMMENT ON COLUMN users.updated_by IS
-'User ID of who last modified this account (foreign key added in migration 002). Auto-updated by trigger.';
+'User ID of who last modified this account. Auto-updated by trigger.';
 
 
 -- ================================================================================
@@ -199,7 +199,7 @@ COMMENT ON TABLE user_password_history IS
 Prevents security vulnerabilities from cycling through old passwords.';
 
 COMMENT ON COLUMN user_password_history.user_id IS
-'Foreign key to users (added in migration 002). Cascade delete when user is deleted.';
+'Foreign key to users. Cascade delete when user is deleted.';
 
 COMMENT ON COLUMN user_password_history.password_hash IS
 'Hash of previous password. Used to check if new password was used before.';
@@ -269,11 +269,11 @@ COMMENT ON COLUMN role_lookup.status IS
 active=currently in use, deprecated=no longer used (kept for history), deleted=soft delete.';
 
 COMMENT ON COLUMN role_lookup.created_by IS
-'User ID of admin who defined this role (for audit trail, foreign key added in migration 002).
+'User ID of admin who defined this role.
 Nullable: System-created roles can have null creator.';
 
 COMMENT ON COLUMN role_lookup.updated_by IS
-'User ID of admin who last modified this role (for audit trail, foreign key added in migration 002).
+'User ID of admin who last modified this role.
 Updated automatically by trigger_role_lookup_update_at.';
 
 
@@ -349,10 +349,10 @@ COMMENT ON COLUMN maintenance_status_lookup.status IS
 'Record lifecycle: active, deprecated, deleted.';
 
 COMMENT ON COLUMN maintenance_status_lookup.created_by IS
-'User ID of admin who created this status (foreign key added in migration 002). Nullable for system-created statuses.';
+'User ID of admin who created this status. Nullable for system-created statuses.';
 
 COMMENT ON COLUMN maintenance_status_lookup.updated_by IS
-'User ID of admin who last modified this status (foreign key added in migration 002). Auto-updated by trigger.';
+'User ID of admin who last modified this status. Auto-updated by trigger.';
 
 
 -- ================================================================================
@@ -416,11 +416,11 @@ COMMENT ON COLUMN maintenance_type_lookup.status IS
 active=currently in use, deprecated=no longer used (kept for history), deleted=soft delete.';
 
 COMMENT ON COLUMN maintenance_type_lookup.created_by IS
-'User ID of admin who defined this maintenance type (foreign key added in migration 002).
+'User ID of admin who defined this maintenance type.
 Nullable: System-created types can have null creator.';
 
 COMMENT ON COLUMN maintenance_type_lookup.updated_by IS
-'User ID of admin who last modified this type (foreign key added in migration 002).
+'User ID of admin who last modified this type.
 Updated automatically by trigger_maintenance_type_lookup_update_at.';
 
 
@@ -476,11 +476,11 @@ COMMENT ON COLUMN equipment_status_lookup.status IS
 active=currently in use, deprecated=no longer used (kept for history), deleted=soft delete.';
 
 COMMENT ON COLUMN equipment_status_lookup.created_by IS
-'User ID of admin who defined this status (foreign key added in migration 002).
+'User ID of admin who defined this status.
 Nullable: System-created statuses can have null creator.';
 
 COMMENT ON COLUMN equipment_status_lookup.updated_by IS
-'User ID of admin who last modified this status (foreign key added in migration 002).
+'User ID of admin who last modified this status.
 Updated automatically by trigger_equipment_status_lookup_update_at.';
 
 -- ================================================================================
@@ -874,7 +874,7 @@ COMMENT ON COLUMN technician_profiles.id IS
 'Primary key - UUID auto-generated.';
 
 COMMENT ON COLUMN technician_profiles.user_id IS
-'Foreign key to users (1:1 unique relationship, added in migration 002).
+'Foreign key to users.
 User must have role "technician", "supervisor", or "inspector".
 Deleted when user is deleted (CASCADE).';
 
@@ -1242,7 +1242,7 @@ COMMENT ON COLUMN organizations_integrations.id IS
 'Primary key - UUID auto-generated.';
 
 COMMENT ON COLUMN organizations_integrations.organization_id IS
-'Foreign key to organizations (added in migration 002).
+'Foreign key to organizations.
 Each integration belongs to exactly one organization.
 CASCADE on delete: if organization deleted, all its integrations deleted.';
 
@@ -1376,7 +1376,7 @@ COMMENT ON COLUMN email_queue.id IS
 'Primary key - UUID auto-generated.';
 
 COMMENT ON COLUMN email_queue.organization_id IS
-'Foreign key to organizations (added in migration 002).
+'Foreign key to organizations.
 Multi-tenant isolation: admins only see emails for their organization.
 CASCADE on delete: if organization deleted, queued emails deleted.';
 
