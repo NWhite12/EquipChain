@@ -68,7 +68,7 @@ func (s *AuthService) LoginUser(ctx context.Context, orgID uuid.UUID, email, pas
 			return "", ErrAccountLocked
 		}
 
-		s.userRepo.RestFailedAttempts(ctx, user.ID)
+		s.userRepo.ResetFailedAttempts(ctx, user.ID)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
@@ -76,7 +76,7 @@ func (s *AuthService) LoginUser(ctx context.Context, orgID uuid.UUID, email, pas
 		return "", ErrInvalidCredentials
 	}
 
-	s.userRepo.RestFailedAttempts(ctx, user.ID)
+	s.userRepo.ResetFailedAttempts(ctx, user.ID)
 
 	token, err := s.jwtService.GenerateToken(user.ID, user.OrganizationID, user.Email, user.RoleID)
 	if err != nil {

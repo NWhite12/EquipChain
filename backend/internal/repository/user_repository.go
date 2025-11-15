@@ -102,7 +102,7 @@ func (r *UserRepository) CheckAndUpdateLockout(ctx context.Context, userID uuid.
 	return locked, remaining, err
 }
 
-func (r *UserRepository) RestFailedAttempts(ctx context.Context, userID uuid.UUID) error {
+func (r *UserRepository) ResetFailedAttempts(ctx context.Context, userID uuid.UUID) error {
 	updates := model.User{
 		FailedLoginAttempts: 0,
 		LockedUntil:         nil,
