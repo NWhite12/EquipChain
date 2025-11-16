@@ -26,7 +26,7 @@ func NewUserRepository(db *gorm.DB) *UserRepository {
 
 func (r *UserRepository) FindByEmail(ctx context.Context, orgID uuid.UUID, email string) (*model.User, error) {
 	var user model.User
-	if err := r.db.WithContext(ctx).Where("organization_id = ? AND email ?", orgID, email).First(&user).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("organization_id = ? AND email = ?", orgID, email).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}

@@ -2,15 +2,17 @@ package service
 
 import (
 	"fmt"
+	"log"
+	"time"
+
+	"github.com/NWhite12/EquipChain/internal/config"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"log"
-	"os"
-	"time"
 )
 
 type JWTService struct {
-	secret string
+	secret      string
+	environment string
 }
 
 type Claims struct {
@@ -21,9 +23,9 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-func NewJWTService() *JWTService {
-	secret := os.Getenv("JWT_SECRET")
-	env := os.Getenv("APP_ENV")
+func NewJWTService(cfg *config.Config) *JWTService {
+	secret := cfg.JWTSecret
+	env := cfg.Environment
 
 	// Production requires JWT_SECRET
 	if secret == "" {
@@ -43,10 +45,10 @@ func NewJWTService() *JWTService {
 	return &JWTService{secret: secret}
 }
 
-func (s *JWTService) GenerateToken(userID, orgID uuid.UUID, email string, roleID int16) (string, error) {
+func (s *JWTService) GenerateToken(userID, organizationID uuid.UUID, email string, roleID int16) (string, error) {
 	claims := Claims{
 		UserID:         userID,
-		OrganizationID: orgID,
+		OrganizationID: organizationID,
 		Email:          email,
 		RoleID:         roleID,
 		RegisteredClaims: jwt.RegisteredClaims{

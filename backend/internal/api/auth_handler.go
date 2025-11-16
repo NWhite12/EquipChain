@@ -17,7 +17,7 @@ func NewAuthHandler(authService *service.AuthService) *AuthHandler {
 
 type RegisterRequest struct {
 	Email          string `json:"email" binding:"required,email"`
-	Password       string `json:"password" binding:"required, min=12"`
+	Password       string `json:"password" binding:"required,min=12"`
 	OrganizationID string `json:"organization_id" binding:"required"`
 }
 

@@ -4,17 +4,68 @@ import (
 	"context"
 	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/spf13/viper"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"os"
 	"time"
 )
 
-func InitDB(ctx context.Context) (*gorm.DB, error) {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		databaseURL = "postgresql://equipchain_dev@localhost:5432/equipchain?sslmode=disable"
+type Config struct {
+	DatabaseURL string
+	JWTSecret   string
+	Port        string
+	Environment string
+	LogLevel    string
+}
+
+func LoadConfig() (*Config, error) {
+	// Set config file path
+	viper.SetConfigName(".env")
+	viper.SetConfigType("env")
+	viper.AddConfigPath(".") // Current directory
+
+	// Read env file (won't fail if .env doesn't exist)
+	_ = viper.ReadInConfig()
+
+	// Environment variables override .env file values
+	viper.AutomaticEnv()
+
+	// Set defaults
+	viper.SetDefault("DATABASE_URL", "postgresql://equipchain_dev@localhost:5432/equipchain?sslmode=disable")
+	viper.SetDefault("PORT", "8080")
+	viper.SetDefault("ENVIRONMENT", "development")
+	viper.SetDefault("LOG_LEVEL", "debug")
+	viper.SetDefault("JWT_SECRET", "dev-secret-key")
+
+	// Bind environment variables to Viper keys
+	viper.BindEnv("DATABASE_URL")
+	viper.BindEnv("JWT_SECRET")
+	viper.BindEnv("PORT")
+	viper.BindEnv("ENVIRONMENT")
+	viper.BindEnv("LOG_LEVEL")
+
+	// Create config struct
+	cfg := &Config{
+		DatabaseURL: viper.GetString("DATABASE_URL"),
+		JWTSecret:   viper.GetString("JWT_SECRET"),
+		Port:        viper.GetString("PORT"),
+		Environment: viper.GetString("ENVIRONMENT"),
+		LogLevel:    viper.GetString("LOG_LEVEL"),
 	}
+
+	// Validate required config
+	if cfg.DatabaseURL == "" {
+		return nil, fmt.Errorf("DATABASE_URL is required")
+	}
+	if cfg.JWTSecret == "" {
+		return nil, fmt.Errorf("JWT_SECRET is required")
+	}
+
+	return cfg, nil
+}
+
+func InitDB(ctx context.Context, cfg *Config) (*gorm.DB, error) {
+	databaseURL := cfg.DatabaseURL
 
 	// Parse pgx config
 	config, err := pgxpool.ParseConfig(databaseURL)

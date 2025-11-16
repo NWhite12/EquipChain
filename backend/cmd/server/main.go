@@ -15,18 +15,22 @@ import (
 )
 
 func main() {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
 	ctx := context.Background()
-	db, err := config.InitDB(ctx)
+	db, err := config.InitDB(ctx, cfg)
 	if err != nil {
 		panic(err)
 	}
 
 	userRepo := repository.NewUserRepository(db)
 
-	jwtService := service.NewJWTService()
+	jwtService := service.NewJWTService(cfg)
 	authService := service.NewAuthService(userRepo, jwtService)
 
 	authHandler := api.NewAuthHandler(authService)

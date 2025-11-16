@@ -22,8 +22,8 @@ func NewAuthService(userRepo *repository.UserRepository, jwtService *JWTService)
 	}
 }
 
-func (s *AuthService) RegisterUser(ctx context.Context, orgID uuid.UUID, email, password string) (*model.User, error) {
-	existing, err := s.userRepo.FindByEmail(ctx, orgID, email)
+func (s *AuthService) RegisterUser(ctx context.Context, organizationID uuid.UUID, email, password string) (*model.User, error) {
+	existing, err := s.userRepo.FindByEmail(ctx, organizationID, email)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func (s *AuthService) RegisterUser(ctx context.Context, orgID uuid.UUID, email, 
 	user := &model.User{
 
 		ID:             uuid.New(),
-		OrganizationID: orgID,
+		OrganizationID: organizationID,
 		Email:          email,
 		PasswordHash:   string(hashedPassword),
 		RoleID:         4,
