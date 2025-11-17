@@ -505,6 +505,17 @@ CREATE TABLE equipment (
   -- QR Code (bas64 PNG data)
   qr_code TEXT,
 
+  notes TEXT,
+  purchased_date DATE,
+  warranty_expires DATE,
+  CONSTRAINT warranty_date_valid CHECK (
+    warranty_expires IS NULL
+    OR purchased_date IS NULL
+    OR warranty_expires >= purchased_date
+  ),
+
+  deleted_at TIMESTAMP WITH TIME ZONE,
+
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -552,6 +563,24 @@ Optional - may be NULL if ownership is organizational.';
 COMMENT ON COLUMN equipment.qr_code IS
 'QR code as base64 PNG data. Format: "data:image/png;base64,iVBORw0KGgoAAAA...".
 Generated on equipment creation. Printed and placed on physical equipment.';
+
+COMMENT ON COLUMN equipment.notes IS
+'Optional general notes about equipment. Example: "Original parts only", "Requires special handling".
+Free text field for equipment managers to track important details.';
+
+COMMENT ON COLUMN equipment.purchased_date IS
+'Date when equipment was originally purchased. Used for warranty tracking and depreciation calculations.
+NULL if purchase date unknown or equipment is leased.';
+
+COMMENT ON COLUMN equipment.warranty_expires IS
+'Date when equipment warranty expires. Used for warranty status alerts and compliance tracking.
+NULL if no warranty or warranty information not available.';
+
+COMMENT ON COLUMN equipment.deleted_at IS
+'Soft delete timestamp. NULL = equipment is active, non-NULL = equipment has been deleted.
+Soft delete preserves data for audit trail and recovery while hiding from normal queries.
+Query active equipment: WHERE deleted_at IS NULL.
+Query deleted equipment: WHERE deleted_at IS NOT NULL.';
 
 COMMENT ON COLUMN equipment.created_by IS
 'User ID of who created this equipment.';
@@ -1529,6 +1558,24 @@ COMMENT ON INDEX idx_equipment_owner_id IS
 CREATE INDEX idx_equipment_created_at ON equipment(created_at);
 COMMENT ON INDEX idx_equipment_created_at IS
 'Time-based queries for reporting.';
+
+CREATE INDEX idx_equipment_deleted_at ON equipment(deleted_at);
+COMMENT ON INDEX idx_equipment_deleted_at IS
+'Soft delete index: Find active vs deleted equipment.';
+
+CREATE INDEX idx_equipment_deleted_at_org ON equipment(organization_id, deleted_at);
+COMMENT ON INDEX idx_equipment_deleted_at_org IS
+'Multi-tenant soft delete: Efficiently query active/deleted equipment per org.';
+
+CREATE INDEX idx_equipment_warranty_expires ON equipment(warranty_expires);
+COMMENT ON INDEX idx_equipment_warranty_expires IS
+'Warranty expiration tracking: Find equipment needing warranty renewal alerts.
+Query: WHERE warranty_expires BETWEEN NOW() AND NOW() + INTERVAL ''90 days''.';
+
+CREATE INDEX idx_equipment_warranty_org ON equipment(organization_id, warranty_expires);
+COMMENT ON INDEX idx_equipment_warranty_org IS
+'Multi-tenant warranty alerts: Find expiring warranties per organization.
+Query: WHERE organization_id = ? AND warranty_expires < NOW().';
 
 --maintenance_records Indexes
 CREATE INDEX idx_maintenance_records_organization_id ON maintenance_records(organization_id);

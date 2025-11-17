@@ -8,14 +8,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// Struct with only safe-to-update fields
-type UserUpdates struct {
-	Email     *string    `gorm:"column:email"`
-	RoleID    *int16     `gorm:"column:role_id"`
-	Status    *string    `gorm:"column:status"`
-	UpdatedBy *uuid.UUID `gorm:"column:updated_by"`
-}
-
 type UserRepository struct {
 	db *gorm.DB
 }
