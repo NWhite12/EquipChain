@@ -28,12 +28,18 @@ func main() {
 		panic(err)
 	}
 
+	// Initialize repositories
 	userRepo := repository.NewUserRepository(db)
+	equipmentRepo := repository.NewEquipmentRepository(db)
 
+	// Initialize services
 	jwtService := service.NewJWTService(cfg)
 	authService := service.NewAuthService(userRepo, jwtService)
+	equipmentService := service.NewEquipmentService(equipmentRepo)
 
+	// Initialize handlers
 	authHandler := api.NewAuthHandler(authService)
+	equipmentHandler := api.NewEquipmentHandler(equipmentService)
 
 	router := gin.Default()
 
@@ -45,6 +51,14 @@ func main() {
 	protected := router.Group("/api")
 	protected.Use(middleware.AuthMiddleware(jwtService))
 	{
+		// Equipment endpoints
+		protected.GET("/equipment", equipmentHandler.List)
+		protected.GET("/equipment/:id", equipmentHandler.Get)
+		protected.POST("/equipment", equipmentHandler.Create)
+		protected.PUT("/equipment/:id", equipmentHandler.Update)
+		protected.DELETE("/equipment/:id", equipmentHandler.Delete)
+
+		// Health check
 		protected.GET("/health", func(c *gin.Context) {
 			c.JSON(200, gin.H{"status": "authenticated"})
 		})
@@ -53,8 +67,6 @@ func main() {
 	if err := router.Run(":8080"); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	} else {
-
 		fmt.Println("Server running on :8080")
 	}
-
 }

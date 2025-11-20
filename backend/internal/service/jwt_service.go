@@ -46,6 +46,9 @@ func NewJWTService(cfg *config.Config) *JWTService {
 }
 
 func (s *JWTService) GenerateToken(userID, organizationID uuid.UUID, email string, roleID int16) (string, error) {
+
+	fmt.Println("organization uuid: " + organizationID.String())
+
 	claims := Claims{
 		UserID:         userID,
 		OrganizationID: organizationID,

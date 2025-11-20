@@ -38,15 +38,17 @@ func (s *AuthService) RegisterUser(ctx context.Context, organizationID uuid.UUID
 
 	user := &model.User{
 
-		ID:             uuid.New(),
-		OrganizationID: organizationID,
-		Email:          email,
-		PasswordHash:   string(hashedPassword),
-		RoleID:         4,
-		Status:         "active",
-		EmailVerified:  false,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		ID:                              uuid.New(),
+		OrganizationID:                  organizationID,
+		Email:                           email,
+		PasswordHash:                    string(hashedPassword),
+		RoleID:                          4,
+		Status:                          "active",
+		EmailVerified:                   false,
+		EmailVerificationToken:          uuid.New().String(),
+		EmailVerificationTokenExpiresAt: nil,
+		CreatedAt:                       time.Now(),
+		UpdatedAt:                       time.Now(),
 	}
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		return nil, err
