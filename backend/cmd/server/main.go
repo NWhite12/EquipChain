@@ -10,6 +10,7 @@ import (
 	"github.com/NWhite12/EquipChain/internal/middleware"
 	"github.com/NWhite12/EquipChain/internal/repository"
 	"github.com/NWhite12/EquipChain/internal/service"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -43,6 +44,15 @@ func main() {
 
 	router := gin.Default()
 
+	// CORS middleware
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:5173"}, // TODO make a configuration for AllowedOrigins
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+	}))
+
 	// Public routes
 	router.POST("/api/auth/register", authHandler.Register)
 	router.POST("/api/auth/login", authHandler.Login)
@@ -55,7 +65,7 @@ func main() {
 		protected.GET("/equipment", equipmentHandler.List)
 		protected.GET("/equipment/:id", equipmentHandler.Get)
 		protected.POST("/equipment", equipmentHandler.Create)
-		protected.PUT("/equipment/:id", equipmentHandler.Update)
+		protected.PATCH("/equipment/:id", equipmentHandler.Update)
 		protected.DELETE("/equipment/:id", equipmentHandler.Delete)
 
 		// Health check
