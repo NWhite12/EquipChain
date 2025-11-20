@@ -114,35 +114,35 @@ COMMENT ON TABLE organizations IS
 -- ================================================================================
 
 -- Demo password hash for "demo123" with bcrypt cost 12:
--- $2a$12$OIYjJHrnZBNfvKfGVBYBr.c7z2LHREG.0lhq6i0gTVGRQFCXXBCzC
+-- $2a$12$p1ucRTMjNrMMBjSECc3SfOkuaNDdDe9wcqZZQSsJa0R4r9WDne3EG
 
 INSERT INTO users (id, organization_id, email, password_hash, role_id, email_verified, email_verified_at, status)
 VALUES
   -- Demo Corp: Admin user
   ('550e8400-e29b-41d4-a716-446655440010'::uuid, '550e8400-e29b-41d4-a716-446655440000'::uuid, 'admin@demo.local',
-'$2a$12$OIYjJHrnZBNfvKfGVBYBr.c7z2LHREG.0lhq6i0gTVGRQFCXXBCzC', 1, true, CURRENT_TIMESTAMP, 'active'),
+'$2a$12$p1ucRTMjNrMMBjSECc3SfOkuaNDdDe9wcqZZQSsJa0R4r9WDne3EG', 1, true, CURRENT_TIMESTAMP, 'active'),
   -- Demo Corp: Supervisor user
   ('550e8400-e29b-41d4-a716-446655440011'::uuid, '550e8400-e29b-41d4-a716-446655440000'::uuid, 'supervisor@demo.local',
-'$2a$12$OIYjJHrnZBNfvKfGVBYBr.c7z2LHREG.0lhq6i0gTVGRQFCXXBCzC', 2, true, CURRENT_TIMESTAMP, 'active'),
+'$2a$12$p1ucRTMjNrMMBjSECc3SfOkuaNDdDe9wcqZZQSsJa0R4r9WDne3EG', 2, true, CURRENT_TIMESTAMP, 'active'),
   -- Demo Corp: Technician user
   ('550e8400-e29b-41d4-a716-446655440012'::uuid, '550e8400-e29b-41d4-a716-446655440000'::uuid, 'technician@demo.local',
-'$2a$12$OIYjJHrnZBNfvKfGVBYBr.c7z2LHREG.0lhq6i0gTVGRQFCXXBCzC', 3, true, CURRENT_TIMESTAMP, 'active'),
+'$2a$12$p1ucRTMjNrMMBjSECc3SfOkuaNDdDe9wcqZZQSsJa0R4r9WDne3EG', 3, true, CURRENT_TIMESTAMP, 'active'),
   -- Demo Corp: Viewer user
   ('550e8400-e29b-41d4-a716-446655440013'::uuid, '550e8400-e29b-41d4-a716-446655440000'::uuid, 'viewer@demo.local',
-'$2a$12$OIYjJHrnZBNfvKfGVBYBr.c7z2LHREG.0lhq6i0gTVGRQFCXXBCzC', 4, true, CURRENT_TIMESTAMP, 'active'),
+'$2a$12$p1ucRTMjNrMMBjSECc3SfOkuaNDdDe9wcqZZQSsJa0R4r9WDne3EG', 4, true, CURRENT_TIMESTAMP, 'active'),
 
   -- Test Builder: Admin user
   ('550e8400-e29b-41d4-a716-446655440020'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid, 'admin@testbuilder.local',
-'$2a$12$OIYjJHrnZBNfvKfGVBYBr.c7z2LHREG.0lhq6i0gTVGRQFCXXBCzC', 1, true, CURRENT_TIMESTAMP, 'active'),
+'$2a$12$p1ucRTMjNrMMBjSECc3SfOkuaNDdDe9wcqZZQSsJa0R4r9WDne3EG', 1, true, CURRENT_TIMESTAMP, 'active'),
   -- Test Builder: Supervisor user
   ('550e8400-e29b-41d4-a716-446655440021'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid, 'supervisor@testbuilder.local', 
-    '$2a$12$OIYjJHrnZBNfvKfGVBYBr.c7z2LHREG.0lhq6i0gTVGRQFCXXBCzC', 2, true, CURRENT_TIMESTAMP, 'active'),
+    '$2a$12$p1ucRTMjNrMMBjSECc3SfOkuaNDdDe9wcqZZQSsJa0R4r9WDne3EG', 2, true, CURRENT_TIMESTAMP, 'active'),
   -- Test Builder: Technician user
   ('550e8400-e29b-41d4-a716-446655440022'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid, 'technician@testbuilder.local', 
-    '$2a$12$OIYjJHrnZBNfvKfGVBYBr.c7z2LHREG.0lhq6i0gTVGRQFCXXBCzC', 3, true, CURRENT_TIMESTAMP, 'active'),
+    '$2a$12$p1ucRTMjNrMMBjSECc3SfOkuaNDdDe9wcqZZQSsJa0R4r9WDne3EG', 3, true, CURRENT_TIMESTAMP, 'active'),
   -- Test Builder: Viewer user
   ('550e8400-e29b-41d4-a716-446655440023'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid, 'viewer@testbuilder.local',
-'$2a$12$OIYjJHrnZBNfvKfGVBYBr.c7z2LHREG.0lhq6i0gTVGRQFCXXBCzC', 4, true, CURRENT_TIMESTAMP, 'active')
+'$2a$12$p1ucRTMjNrMMBjSECc3SfOkuaNDdDe9wcqZZQSsJa0R4r9WDne3EG', 4, true, CURRENT_TIMESTAMP, 'active')
 ON CONFLICT (organization_id, email) DO NOTHING;
 
 
