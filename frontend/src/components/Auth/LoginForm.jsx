@@ -11,12 +11,12 @@ export default function LoginForm() {
   const navigate = useNavigate()
 
   const handleSubmit = async (e) => {
-    e.preventDefaults()
+    e.preventDefault()
     try {
       await login(email, password, organizationId)
       navigate('/dashboard')
     } catch (err) {
-      setError(err)
+      setError(err.message)
     }
   }
 
