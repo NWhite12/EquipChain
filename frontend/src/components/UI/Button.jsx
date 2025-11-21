@@ -1,7 +1,8 @@
 import { cva } from "class-variance-authority"
+import Spinner from "./Spinner"
 
 const buttonStyle = cva(
-  "inline-flex items-center justify-center font-semibold transition-colors rounded-md focus:outline-none focus:ring-2 focust:ring-offset-2",
+  "inline-flex items-center justify-center font-semibold transition-colors rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2",
   {
     variants: {
       variant: {
@@ -39,7 +40,7 @@ export default function Button({
 }) {
   return (<button
     className={buttonStyle({ variant, size, fullWidth, className })} disabled={disabled || loading} {...props}>
-    {loading && <Spinner size="sw" className="mr-2" />}
+    {loading && <Spinner size="sm" className="mr-2" />}
     {Icon && <Icon className="w-4 h-4 mr-2" />}
     {children}</button>)
 }
