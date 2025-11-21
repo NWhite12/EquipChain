@@ -27,6 +27,13 @@ const buttonStyle = cva(
   }
 )
 
+const spinnerColorMap = {
+  primary: "white",
+  secondary: "gray",
+  danger: "white",
+  outline: "blue",
+}
+
 export default function Button({
   children,
   variant,
@@ -36,11 +43,13 @@ export default function Button({
   loading,
   icon: Icon,
   className,
+  spinnerColor,
   ...props
 }) {
+  const defaultSpinnerColor = spinnerColorMap[variant] || "white"
   return (<button
     className={buttonStyle({ variant, size, fullWidth, className })} disabled={disabled || loading} {...props}>
-    {loading && <Spinner size="sm" className="mr-2" />}
+    {loading && <Spinner size="sm" className="mr-2" color={spinnerColor || defaultSpinnerColor} />}
     {Icon && <Icon className="w-4 h-4 mr-2" />}
     {children}</button>)
 }

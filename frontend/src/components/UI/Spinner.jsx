@@ -15,7 +15,7 @@ const spinnerStyles = cva("animate-spin", {
   },
   defaultVariants: {
     size: "md",
-    color: "white",
+    color: "blue",
   },
 })
 
