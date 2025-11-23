@@ -23,6 +23,7 @@ export const equipmentFormSchema = z.object({
     .optional(),
 
   statusId: z
+    .coerce
     .number()
     .optional(),
 
