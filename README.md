@@ -173,20 +173,16 @@ Scripts resolve database config through four layers, highest priority wins:
 - **Request validation** — Hardened validators for serial number, make, model, status ID, and date fields
 - **Database schema** — PostgreSQL migrations for `organizations`, `users`, `roles`, `equipment`, and `equipment_status_lookup` tables including foreign keys, constraints, and seed data
 - **Database scripts** — Shell-based provisioning with ephemeral migrator role, role-based access control, and four-layer config system
-- **Middleware** — JWT auth middleware, CORS, and structured request logging via Zap
+- **Middleware** — JWT auth middleware and CORS (Zap logger middleware defined but not yet wired to router
 - **Service layer** — Business logic cleanly separated from HTTP handlers using repository and service patterns
 - **Configuration** — Viper-based config supporting dev/staging/prod environments
 
 ### Frontend
-
-- **Routing & auth** — React Router v7 setup with protected routes, auth context, and JWT storage/refresh
-- **UI component library** — Button, Modal, Badge, Spinner, Table, Pagination, EmptyState, SkeletonLoader (all with variants)
-- **Form components** — `FormInput`, `FormSelect`, `FormDateInput` with error and hint support
-- **Equipment interface** — Equipment list with filters (status, location, search), create/edit modal, and detail panel
-- **Dashboard structure** — `StatCard`, `EquipmentStatusChart`, `EquipmentTrendChart`, and grid layout via Recharts
-- **Custom hooks** — `useAuth`, `useDebounce`, `useLocalStorage`, `usePagination`, `useEquipmentFilters`, `useEquipmentModal`
-- **API service layer** — Axios client with auth header injection, 401 auto-redirect, and service modules for auth and equipment
-- **State management** — Zustand store structure scaffolded for auth, equipment, and UI state
+  - **Routing & auth** — React Router v7 setup with protected routes, auth context, and JWT storage
+  - **UI component library** — Button, Modal, Badge, Spinner, Table, Pagination, EmptyState, Skeleton (all with variants via CVA)
+  - **Form components** — `FormInput`, `FormSelect`, `FormDateInput` with error and hint support
+  - **Validation schemas** — Zod schemas for auth and equipment form validation
+  - **Custom hooks** — `useAuth` with login, register, and logout
 
 ### API Endpoints (Implemented)
 
